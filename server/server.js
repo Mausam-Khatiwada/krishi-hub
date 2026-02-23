@@ -10,9 +10,7 @@ const connectDB = require('./config/db');
 const setupCloudinary = require('./config/cloudinary');
 const User = require('./models/User');
 const Chat = require('./models/Chat');
-app.get('/', (req, res) => {
-  res.json({ status: 'success', message: 'API is running!' });
-});
+
 setupCloudinary();
 
 const server = http.createServer(app);

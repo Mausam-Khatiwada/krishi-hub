@@ -26,7 +26,9 @@ const globalErrorHandler = require('./middleware/errorMiddleware');
 const sanitizeRequest = require('./middleware/sanitizeMiddleware');
 
 const app = express();
-
+app.get('/', (req, res) => {
+  res.json({ status: 'success', message: 'API is running!' });
+});
 app.set('trust proxy', 1);
 
 app.use(
