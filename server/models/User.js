@@ -26,6 +26,40 @@ const addressSchema = new mongoose.Schema(
   { _id: true },
 );
 
+const productAlertSchema = new mongoose.Schema(
+  {
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+    },
+    targetPrice: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    notifyOnPriceDrop: {
+      type: Boolean,
+      default: true,
+    },
+    notifyOnRestock: {
+      type: Boolean,
+      default: true,
+    },
+    lastNotifiedPrice: Number,
+    lastNotifiedStock: Number,
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -55,6 +89,13 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     avatar: String,
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      index: true,
+    },
     phone: String,
     bio: String,
     location: locationSchema,
@@ -79,6 +120,7 @@ const userSchema = new mongoose.Schema(
       min: 0,
     },
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+    productAlerts: [productAlertSchema],
     subscribedFarmers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     badges: [{ type: String }],
     preferences: {
@@ -95,6 +137,16 @@ const userSchema = new mongoose.Schema(
     security: {
       twoFactorEnabled: { type: Boolean, default: false },
       loginAlerts: { type: Boolean, default: true },
+      failedLoginAttempts: { type: Number, default: 0, select: false },
+      lockUntil: { type: Date, select: false },
+    },
+    twoFactorSecret: {
+      type: String,
+      select: false,
+    },
+    twoFactorTempSecret: {
+      type: String,
+      select: false,
     },
     addresses: [addressSchema],
     farmerProfile: {
@@ -136,6 +188,7 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ role: 1, isFarmerVerified: 1 });
+userSchema.index({ _id: 1, 'productAlerts.product': 1 });
 
 userSchema.pre('save', async function encryptPassword() {
   if (!this.isModified('password')) {

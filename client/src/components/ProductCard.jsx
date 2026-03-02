@@ -9,6 +9,7 @@ import { fetchMe } from '../features/auth/authSlice';
 import {
   ArrowRightIcon,
   CartIcon,
+  CompareIcon,
   HeartFilledIcon,
   HeartIcon,
   LeafIcon,
@@ -21,7 +22,7 @@ import { formatCurrency, truncate } from '../utils/format';
 const normalizeWishlistIds = (wishlist = []) =>
   wishlist.map((item) => (typeof item === 'object' && item?._id ? item._id : item));
 
-const ProductCard = ({ product }) => {
+const ProductCard = ({ product, onToggleCompare, isCompared = false, compareDisabled = false }) => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
@@ -91,6 +92,9 @@ const ProductCard = ({ product }) => {
             Organic
           </span>
         )}
+        <span className="absolute right-3 top-3 badge bg-[var(--surface)]/90 text-[var(--text-muted)]">
+          Stock {Number(product.quantityAvailable || 0)}
+        </span>
       </div>
 
       <div className="flex flex-1 flex-col gap-2.5 p-4">
@@ -133,10 +137,21 @@ const ProductCard = ({ product }) => {
         <p className="text-sm font-bold text-[var(--accent)]">{formatCurrency(product.pricePerUnit)}</p>
 
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          <Link to={`/products/${product._id}`} className="btn-secondary">
+          <Link to={`/products/${product._id}`} className="btn-primary">
             Details
             <ArrowRightIcon className="h-3.5 w-3.5" />
           </Link>
+          {typeof onToggleCompare === 'function' && (
+            <button
+              type="button"
+              onClick={() => onToggleCompare(product)}
+              disabled={compareDisabled && !isCompared}
+              className={`btn-secondary ${isCompared ? '!border-[var(--accent)] !bg-[var(--bg-soft)] !text-[var(--accent)]' : ''}`}
+            >
+              <CompareIcon className="h-4 w-4" />
+              {isCompared ? 'Compared' : 'Compare'}
+            </button>
+          )}
           {user?.role === 'buyer' && (
             <>
               <button type="button" onClick={handleAddToCart} className="btn-primary">

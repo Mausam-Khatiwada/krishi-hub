@@ -11,7 +11,7 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
 
 ## Auth
 
-- `POST /auth/register`
+- `POST /auth/register/request-otp`
   - Body:
     ```json
     {
@@ -22,17 +22,92 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
       "location": { "district": "Kaski", "province": "Gandaki", "country": "Nepal" }
     }
     ```
+  - Response includes `registerChallengeToken`.
+
+- `POST /auth/register/verify`
+  - Body:
+    ```json
+    {
+      "registerChallengeToken": "...",
+      "otpCode": "123456",
+      "password": "secret123"
+    }
+    ```
+
+- `POST /auth/register/resend-otp`
+  - Body:
+    ```json
+    {
+      "registerChallengeToken": "..."
+    }
+    ```
 
 - `POST /auth/login`
+  - Supports optional two-factor fields:
+    ```json
+    {
+      "email": "user@example.com",
+      "password": "secret123",
+      "twoFactorCode": "123456",
+      "twoFactorAuthToken": "optional-challenge-token"
+    }
+    ```
+  - If 2FA is enabled and code is missing, response includes:
+    ```json
+    {
+      "status": "success",
+      "requiresTwoFactor": true,
+      "twoFactorAuthToken": "..."
+    }
+    ```
+  - May return `423 Locked` after repeated failed password attempts.
+- `POST /auth/google`
+  - Body:
+    ```json
+    {
+      "credential": "google_id_token",
+      "role": "buyer",
+      "twoFactorCode": "123456",
+      "twoFactorAuthToken": "optional-challenge-token"
+    }
+    ```
 - `POST /auth/logout`
 - `GET /auth/me` (protected)
 - `PATCH /auth/me` (protected)
+- `PATCH /auth/security` (protected)
+  - Supports:
+    ```json
+    {
+      "security": {
+        "loginAlerts": true
+      }
+    }
+    ```
+- `POST /auth/2fa/setup` (protected)
+- `POST /auth/2fa/enable` (protected)
+  - Body: `{ "token": "123456" }`
+- `POST /auth/2fa/disable` (protected)
+  - Body: `{ "token": "123456" }`
 
 ## Users
 
 - `PATCH /users/wishlist/:productId` (buyer/farmer)
 - `PATCH /users/subscribe/:farmerId` (buyer)
 - `GET /users/purchase-history` (buyer)
+- `GET /users/alerts` (buyer)
+- `PATCH /users/alerts/:productId` (buyer)
+  - Body example:
+    ```json
+    {
+      "active": true,
+      "targetPrice": 180,
+      "notifyOnPriceDrop": true,
+      "notifyOnRestock": true
+    }
+    ```
+- `GET /users/insights/buyer-buy-again` (buyer)
+- `GET /users/insights/farmer-demand` (farmer)
+- `GET /users/insights/farmer-customers` (farmer)
 
 ## Categories
 
@@ -77,6 +152,15 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
     }
     ```
 - `POST /orders/payments/confirm` (buyer)
+  - Body:
+    ```json
+    {
+      "sessionId": "cs_test_..."
+    }
+    ```
+  - Notes:
+    - Confirms only buyer-owned order sessions.
+    - Validates Stripe session `payment_status=paid` before marking order as paid.
 - `GET /orders/my` (buyer)
 - `GET /orders/farmer` (farmer)
 - `GET /orders/analytics/farmer` (farmer)
@@ -97,6 +181,44 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
 ## Admin
 
 - `GET /admin/dashboard`
+- `GET /admin/intelligence/overview`
+- `GET /admin/intelligence/dynamic-pricing`
+- `POST /admin/intelligence/dynamic-pricing/apply`
+  - Body:
+    ```json
+    {
+      "updates": [
+        { "productId": "...", "pricePerUnit": 180 }
+      ]
+    }
+    ```
+- `GET /admin/intelligence/inventory`
+- `POST /admin/intelligence/inventory/automate`
+  - Body:
+    ```json
+    {
+      "mode": "notify-and-tag",
+      "thresholdDays": 10
+    }
+    ```
+- `GET /admin/intelligence/marketing`
+- `POST /admin/intelligence/marketing/launch`
+  - Body:
+    ```json
+    {
+      "campaignType": "reactivation",
+      "targetSegment": "dormant-buyers",
+      "title": "We miss you on Krishihub",
+      "message": "Fresh harvests are live again.",
+      "createCoupon": {
+        "enabled": true,
+        "codePrefix": "BACK",
+        "discountType": "percent",
+        "value": 10,
+        "expiresDays": 7
+      }
+    }
+    ```
 - `GET /admin/users`
 - `PATCH /admin/users/:id/block`
 - `PATCH /admin/farmers/:id/verify`

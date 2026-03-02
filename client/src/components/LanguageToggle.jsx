@@ -20,7 +20,7 @@ const LanguageToggle = () => {
       title={current === 'en' ? 'Switch to Nepali' : 'Switch to English'}
     >
       <GlobeIcon className="h-4 w-4" />
-      {current === 'en' ? 'नेपाली' : 'English'}
+      <span className="hidden md:inline">{current === 'en' ? 'नेपाली' : 'English'}</span>
     </button>
   );
 };

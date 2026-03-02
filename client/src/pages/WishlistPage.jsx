@@ -8,7 +8,7 @@ import { fetchMe } from '../features/auth/authSlice';
 import { formatCurrency } from '../utils/format';
 import usePageTitle from '../hooks/usePageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { CartIcon, HeartFilledIcon } from '../components/icons/AppIcons';
+import { CartIcon, HeartFilledIcon, ShoppingBagIcon } from '../components/icons/AppIcons';
 
 const WishlistPage = () => {
   usePageTitle('Wishlist');
@@ -66,6 +66,28 @@ const WishlistPage = () => {
     toast.success('Added to cart');
   };
 
+  const addAllInStockToCart = () => {
+    const availableItems = wishlist.filter((item) => Number(item.quantityAvailable || 0) > 0);
+    if (!availableItems.length) {
+      toast.error('No in-stock products to add');
+      return;
+    }
+
+    availableItems.forEach((item) => {
+      dispatch(
+        addToCart({
+          productId: item._id,
+          name: item.name,
+          pricePerUnit: item.pricePerUnit,
+          farmerId: item.farmer?._id,
+          image: item.images?.[0]?.url,
+        }),
+      );
+    });
+
+    toast.success(`${availableItems.length} products added to cart`);
+  };
+
   if (wishlistLoading) {
     return <LoadingSpinner />;
   }
@@ -105,6 +127,10 @@ const WishlistPage = () => {
           <Link to="/" className="btn-secondary">
             Explore products
           </Link>
+          <button type="button" className="btn-secondary" onClick={addAllInStockToCart} disabled={!wishlist.length}>
+            <ShoppingBagIcon className="h-4 w-4" />
+            Add all in stock
+          </button>
           <button type="button" className="btn-danger" onClick={clearAll} disabled={!wishlist.length}>
             Clear wishlist
           </button>

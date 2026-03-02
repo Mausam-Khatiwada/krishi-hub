@@ -25,7 +25,7 @@ import {
 import { formatCurrency, formatDate } from '../utils/format';
 import usePageTitle from '../hooks/usePageTitle';
 
-const tabs = ['overview', 'users', 'products', 'orders', 'coupons', 'audit', 'content'];
+const tabs = ['overview', 'intelligence', 'users', 'products', 'orders', 'coupons', 'audit', 'content'];
 
 const AdminDashboardPage = () => {
   usePageTitle('Admin Dashboard');
@@ -63,6 +63,31 @@ const AdminDashboardPage = () => {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditFilter, setAuditFilter] = useState({ action: '', targetType: '', search: '' });
   const [auditMeta, setAuditMeta] = useState({ page: 1, total: 0, hasMore: false });
+  const [intelligence, setIntelligence] = useState(null);
+  const [pricingInsights, setPricingInsights] = useState({ summary: null, recommendations: [] });
+  const [selectedPricingIds, setSelectedPricingIds] = useState([]);
+  const [inventoryInsights, setInventoryInsights] = useState({ summary: null, criticalItems: [] });
+  const [marketingInsights, setMarketingInsights] = useState({
+    segments: null,
+    couponPerformance: [],
+    campaigns: [],
+    recommendedCampaigns: [],
+  });
+  const [inventoryAutomationMode, setInventoryAutomationMode] = useState('notify-and-tag');
+  const [inventoryThresholdDays, setInventoryThresholdDays] = useState(10);
+  const [campaignDraft, setCampaignDraft] = useState({
+    campaignType: 'reactivation',
+    targetSegment: 'dormant-buyers',
+    title: 'We miss you on Krishihub',
+    message: 'Fresh harvests and better prices are waiting. Return today and unlock your reward.',
+    createCoupon: true,
+    codePrefix: 'BACK',
+    discountType: 'percent',
+    value: 10,
+    minOrderAmount: 0,
+    usageLimit: 400,
+    expiresDays: 7,
+  });
 
   const refreshCore = () => {
     dispatch(fetchAdminDashboard());
@@ -108,6 +133,31 @@ const AdminDashboardPage = () => {
     });
   };
 
+  const loadAdminIntelligence = async () => {
+    const [overviewRes, pricingRes, inventoryRes, marketingRes] = await Promise.all([
+      api.get('/admin/intelligence/overview'),
+      api.get('/admin/intelligence/dynamic-pricing', { params: { limit: 80 } }),
+      api.get('/admin/intelligence/inventory'),
+      api.get('/admin/intelligence/marketing'),
+    ]);
+
+    setIntelligence(overviewRes.data.intelligence || null);
+    setPricingInsights({
+      summary: pricingRes.data.summary || null,
+      recommendations: pricingRes.data.recommendations || [],
+    });
+    setInventoryInsights({
+      summary: inventoryRes.data.summary || null,
+      criticalItems: inventoryRes.data.criticalItems || [],
+    });
+    setMarketingInsights({
+      segments: marketingRes.data.segments || null,
+      couponPerformance: marketingRes.data.couponPerformance || [],
+      campaigns: marketingRes.data.campaigns || [],
+      recommendedCampaigns: marketingRes.data.recommendedCampaigns || [],
+    });
+  };
+
   useEffect(() => {
     const boot = async () => {
       try {
@@ -119,6 +169,7 @@ const AdminDashboardPage = () => {
           loadForum(),
           loadAnnouncementHistory(),
           loadAuditLogs(),
+          loadAdminIntelligence(),
         ]);
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to load admin data');
@@ -148,6 +199,13 @@ const AdminDashboardPage = () => {
     if (tab !== 'audit') return;
     loadAuditLogs({ page: 1 }).catch((error) =>
       toast.error(error.response?.data?.message || 'Failed to refresh audit logs'),
+    );
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'intelligence') return;
+    loadAdminIntelligence().catch((error) =>
+      toast.error(error.response?.data?.message || 'Failed to load intelligence suite'),
     );
   }, [tab]);
 
@@ -238,6 +296,92 @@ const AdminDashboardPage = () => {
       loadAuditLogs({ page: 1 });
     } catch (error) {
       toast.error(error.response?.data?.message || 'Bulk action failed');
+    }
+  };
+
+  const togglePricingSelection = (productId) => {
+    setSelectedPricingIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId],
+    );
+  };
+
+  const selectTopPricingByConfidence = () => {
+    const topIds = (pricingInsights.recommendations || [])
+      .slice(0, 20)
+      .map((item) => item.productId);
+    setSelectedPricingIds(topIds);
+  };
+
+  const applySelectedDynamicPricing = async () => {
+    if (!selectedPricingIds.length) {
+      toast.error('Select at least one pricing recommendation');
+      return;
+    }
+
+    const updates = pricingInsights.recommendations
+      .filter((item) => selectedPricingIds.includes(item.productId))
+      .map((item) => ({ productId: item.productId, pricePerUnit: item.recommendedPrice }));
+
+    try {
+      const { data } = await api.post('/admin/intelligence/dynamic-pricing/apply', { updates });
+      toast.success(`Dynamic pricing applied to ${data.updatedCount} products`);
+      if (data.skippedCount) {
+        toast.error(`${data.skippedCount} products skipped by safety rules`);
+      }
+      setSelectedPricingIds([]);
+      refreshCore();
+      await loadAdminIntelligence();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to apply dynamic pricing');
+    }
+  };
+
+  const runInventoryAutomationAction = async () => {
+    try {
+      const { data } = await api.post('/admin/intelligence/inventory/automate', {
+        mode: inventoryAutomationMode,
+        thresholdDays: Number(inventoryThresholdDays) || 10,
+      });
+
+      toast.success(
+        `Inventory automation complete: targeted ${data.targetedCount}, notified ${data.notifiedCount}, tagged ${data.taggedCount}`,
+      );
+      await loadAdminIntelligence();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Inventory automation failed');
+    }
+  };
+
+  const launchMarketingAutomationCampaign = async (event) => {
+    event.preventDefault();
+
+    try {
+      const payload = {
+        campaignType: campaignDraft.campaignType,
+        targetSegment: campaignDraft.targetSegment,
+        title: campaignDraft.title,
+        message: campaignDraft.message,
+        createCoupon: campaignDraft.createCoupon
+          ? {
+              enabled: true,
+              codePrefix: campaignDraft.codePrefix,
+              discountType: campaignDraft.discountType,
+              value: Number(campaignDraft.value) || 10,
+              minOrderAmount: Number(campaignDraft.minOrderAmount) || 0,
+              usageLimit: Number(campaignDraft.usageLimit) || 400,
+              expiresDays: Number(campaignDraft.expiresDays) || 7,
+            }
+          : { enabled: false },
+      };
+
+      const { data } = await api.post('/admin/intelligence/marketing/launch', payload);
+      toast.success(`Campaign launched to ${data.campaign?.recipients || 0} users`);
+      if (data.campaign?.coupon?.code) {
+        toast.success(`Coupon generated: ${data.campaign.coupon.code}`);
+      }
+      await loadAdminIntelligence();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to launch automated campaign');
     }
   };
 
@@ -398,6 +542,279 @@ const AdminDashboardPage = () => {
                   <p className="mt-1 text-[10px] text-[var(--text-muted)]">{formatDate(item.createdAt)}  |  {item.recipients} recipients</p>
                 </article>
               ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {tab === 'intelligence' && (
+        <section className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">Revenue (30d)</p>
+              <p className="text-lg font-bold">{formatCurrency(intelligence?.kpis?.totalRevenue30 || 0)}</p>
+            </div>
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">Orders (30d)</p>
+              <p className="text-2xl font-bold">{intelligence?.kpis?.totalOrders30 || 0}</p>
+            </div>
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">AOV (30d)</p>
+              <p className="text-lg font-bold">{formatCurrency(intelligence?.kpis?.avgOrderValue30 || 0)}</p>
+            </div>
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">Projected Rev (7d)</p>
+              <p className="text-lg font-bold">{formatCurrency(intelligence?.kpis?.projectedRevenueNext7Days || 0)}</p>
+            </div>
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">Fulfillment Risk</p>
+              <p className="text-2xl font-bold">{intelligence?.kpis?.fulfillmentRiskScore || 0}</p>
+            </div>
+            <div className="metric-card p-3">
+              <p className="text-xs text-[var(--text-muted)]">Avg Review (30d)</p>
+              <p className="text-2xl font-bold">{intelligence?.kpis?.avgReviewRating30 || 0}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="app-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="panel-title">Dynamic Pricing Engine</p>
+                <div className="flex gap-2">
+                  <button type="button" className="btn-secondary" onClick={selectTopPricingByConfidence}>
+                    Select top
+                  </button>
+                  <button type="button" className="btn-primary" onClick={applySelectedDynamicPricing}>
+                    Apply selected ({selectedPricingIds.length})
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                {pricingInsights.summary
+                  ? `${pricingInsights.summary.recommendationCount} recommendations | Avg confidence ${pricingInsights.summary.averageConfidence}%`
+                  : 'No pricing recommendations available'}
+              </p>
+              <div className="table-shell mt-3 max-h-[22rem] overflow-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th />
+                      <th>Product</th>
+                      <th>Current</th>
+                      <th>Recommended</th>
+                      <th>Delta</th>
+                      <th>Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(pricingInsights.recommendations || []).slice(0, 80).map((item) => (
+                      <tr key={item.productId}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedPricingIds.includes(item.productId)}
+                            onChange={() => togglePricingSelection(item.productId)}
+                            aria-label={`Select pricing recommendation ${item.name}`}
+                          />
+                        </td>
+                        <td>{item.name}</td>
+                        <td>{formatCurrency(item.currentPrice)}</td>
+                        <td>{formatCurrency(item.recommendedPrice)}</td>
+                        <td className={item.deltaPercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                          {item.deltaPercent}%
+                        </td>
+                        <td>{item.confidence}%</td>
+                      </tr>
+                    ))}
+                    {!pricingInsights.recommendations?.length && (
+                      <tr>
+                        <td colSpan="6" className="text-center text-[var(--text-muted)]">No pricing insights yet</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="app-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="panel-title">Smart Inventory & Supply Automation</p>
+                <button type="button" className="btn-secondary" onClick={loadAdminIntelligence}>Refresh</button>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Critical: {inventoryInsights.summary?.criticalCount || 0} | High: {inventoryInsights.summary?.highCount || 0} | Delayed Shipments: {inventoryInsights.summary?.delayedShipmentCount || 0}
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                <select
+                  className="select"
+                  value={inventoryAutomationMode}
+                  onChange={(event) => setInventoryAutomationMode(event.target.value)}
+                >
+                  <option value="notify-and-tag">Notify + tag critical</option>
+                  <option value="notify">Notify only</option>
+                  <option value="tag-critical">Tag only</option>
+                </select>
+                <input
+                  type="number"
+                  className="input"
+                  min="3"
+                  max="45"
+                  value={inventoryThresholdDays}
+                  onChange={(event) => setInventoryThresholdDays(event.target.value)}
+                  placeholder="Threshold days"
+                />
+                <button type="button" className="btn-primary" onClick={runInventoryAutomationAction}>
+                  Run Automation
+                </button>
+              </div>
+              <div className="table-shell mt-3 max-h-[20rem] overflow-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>Stock</th>
+                      <th>Velocity/day</th>
+                      <th>Stockout</th>
+                      <th>Risk</th>
+                      <th>Reorder</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(inventoryInsights.criticalItems || []).slice(0, 60).map((item) => (
+                      <tr key={item.productId}>
+                        <td>{item.name}</td>
+                        <td>{item.stock}</td>
+                        <td>{item.velocityPerDay}</td>
+                        <td>{item.daysToStockout ?? '-'}</td>
+                        <td className={item.riskLevel === 'critical' ? 'text-rose-600 font-semibold' : ''}>{item.riskLevel}</td>
+                        <td>{item.recommendedReorderQty}</td>
+                      </tr>
+                    ))}
+                    {!inventoryInsights.criticalItems?.length && (
+                      <tr>
+                        <td colSpan="6" className="text-center text-[var(--text-muted)]">No critical inventory alerts</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
+            <form onSubmit={launchMarketingAutomationCampaign} className="app-card p-4 space-y-3">
+              <p className="panel-title">Advanced Marketing Automation</p>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <select
+                  className="select"
+                  value={campaignDraft.campaignType}
+                  onChange={(event) => setCampaignDraft((prev) => ({ ...prev, campaignType: event.target.value }))}
+                >
+                  <option value="reactivation">Reactivation</option>
+                  <option value="upsell">Upsell</option>
+                  <option value="flash-sale">Flash Sale</option>
+                  <option value="new-arrivals">New Arrivals</option>
+                  <option value="farmer-verification">Farmer Verification</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select
+                  className="select"
+                  value={campaignDraft.targetSegment}
+                  onChange={(event) => setCampaignDraft((prev) => ({ ...prev, targetSegment: event.target.value }))}
+                >
+                  <option value="all-buyers">All buyers</option>
+                  <option value="dormant-buyers">Dormant buyers</option>
+                  <option value="high-value-buyers">High-value buyers</option>
+                  <option value="new-buyers">New buyers</option>
+                  <option value="active-farmers">Active farmers</option>
+                  <option value="farmers-pending-verification">Farmers pending verification</option>
+                </select>
+              </div>
+              <input
+                className="input"
+                placeholder="Campaign title"
+                value={campaignDraft.title}
+                onChange={(event) => setCampaignDraft((prev) => ({ ...prev, title: event.target.value }))}
+              />
+              <textarea
+                rows="3"
+                className="textarea"
+                placeholder="Campaign message"
+                value={campaignDraft.message}
+                onChange={(event) => setCampaignDraft((prev) => ({ ...prev, message: event.target.value }))}
+              />
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={campaignDraft.createCoupon}
+                  onChange={(event) => setCampaignDraft((prev) => ({ ...prev, createCoupon: event.target.checked }))}
+                />
+                Auto-generate coupon
+              </label>
+              {campaignDraft.createCoupon && (
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  <input
+                    className="input"
+                    placeholder="Prefix"
+                    value={campaignDraft.codePrefix}
+                    onChange={(event) => setCampaignDraft((prev) => ({ ...prev, codePrefix: event.target.value }))}
+                  />
+                  <select
+                    className="select"
+                    value={campaignDraft.discountType}
+                    onChange={(event) => setCampaignDraft((prev) => ({ ...prev, discountType: event.target.value }))}
+                  >
+                    <option value="percent">Percent</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                  <input
+                    type="number"
+                    className="input"
+                    placeholder="Value"
+                    value={campaignDraft.value}
+                    onChange={(event) => setCampaignDraft((prev) => ({ ...prev, value: event.target.value }))}
+                  />
+                  <input
+                    type="number"
+                    className="input"
+                    placeholder="Expires days"
+                    value={campaignDraft.expiresDays}
+                    onChange={(event) => setCampaignDraft((prev) => ({ ...prev, expiresDays: event.target.value }))}
+                  />
+                </div>
+              )}
+              <button type="submit" className="btn-primary">Launch Automated Campaign</button>
+            </form>
+
+            <div className="app-card p-4 space-y-3">
+              <p className="panel-title">Marketing Segment Intelligence</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Dormant buyers</p>
+                  <p className="text-lg font-bold">{marketingInsights.segments?.dormantBuyers || 0}</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">High-value buyers</p>
+                  <p className="text-lg font-bold">{marketingInsights.segments?.highValueBuyers || 0}</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Active farmers</p>
+                  <p className="text-lg font-bold">{marketingInsights.segments?.activeFarmers || 0}</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Pending farmers</p>
+                  <p className="text-lg font-bold">{marketingInsights.segments?.pendingFarmers || 0}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Recommended campaigns</p>
+                {(marketingInsights.recommendedCampaigns || []).map((item) => (
+                  <article key={`${item.type}-${item.targetSegment}`} className="rounded-lg border border-[var(--line)] p-2 text-xs">
+                    <p className="font-semibold">{item.title}</p>
+                    <p className="text-[var(--text-muted)]">{item.reason}</p>
+                  </article>
+                ))}
+              </div>
             </div>
           </div>
         </section>

@@ -13,6 +13,16 @@ import { restoreTheme } from './features/ui/uiSlice';
 store.dispatch(restoreCart());
 store.dispatch(restoreTheme());
 
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      if (import.meta.env.DEV) {
+        console.error('Service worker registration failed:', error);
+      }
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('app')).render(
   <React.StrictMode>
     <Provider store={store}>

@@ -16,6 +16,13 @@ const getUniqueFarmerIds = (items) => {
   return [...set];
 };
 
+const normalizeOrigin = (value = '') => String(value).trim().replace(/\/+$/, '');
+const getPrimaryClientUrl = () =>
+  String(process.env.CLIENT_URL || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean)[0] || 'http://localhost:5173';
+
 const calculateDiscount = (coupon, total) => {
   if (!coupon) return 0;
 
@@ -169,32 +176,35 @@ const createOrder = catchAsync(async (req, res, next) => {
   if (paymentMethod === 'stripe') {
     const stripe = getStripe();
 
-    if (stripe) {
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        payment_method_types: ['card'],
-        line_items: orderItems.map((item) => ({
-          price_data: {
-            currency: (process.env.STRIPE_CURRENCY || 'npr').toLowerCase(),
-            product_data: {
-              name: item.productName,
-            },
-            unit_amount: Math.round(item.unitPrice * 100),
-          },
-          quantity: item.quantity,
-        })),
-        metadata: {
-          orderId: String(order._id),
-          buyerId: String(req.user._id),
-        },
-        success_url: `${process.env.CLIENT_URL}/orders?payment=success&orderId=${order._id}&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.CLIENT_URL}/checkout?payment=cancelled`,
-      });
-
-      order.stripeSessionId = session.id;
-      await order.save();
-      checkoutUrl = session.url;
+    if (!stripe) {
+      return next(new AppError('Stripe payment is currently unavailable. Please choose Cash on Delivery.', 503));
     }
+
+    const clientUrl = getPrimaryClientUrl();
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: orderItems.map((item) => ({
+        price_data: {
+          currency: (process.env.STRIPE_CURRENCY || 'npr').toLowerCase(),
+          product_data: {
+            name: item.productName,
+          },
+          unit_amount: Math.round(item.unitPrice * 100),
+        },
+        quantity: item.quantity,
+      })),
+      metadata: {
+        orderId: String(order._id),
+        buyerId: String(req.user._id),
+      },
+      success_url: `${clientUrl}/orders?payment=success&orderId=${order._id}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${clientUrl}/checkout?payment=cancelled`,
+    });
+
+    order.stripeSessionId = session.id;
+    await order.save();
+    checkoutUrl = session.url;
   }
 
   res.status(201).json({
@@ -298,7 +308,7 @@ const setFarmerDecision = catchAsync(async (req, res, next) => {
     action: 'order.update_status',
     orderId: order._id,
     targetLabel: `Order ${order._id}`,
-    details: { status, paymentStatus: order.paymentStatus },
+    details: { status: order.status, decision, paymentStatus: order.paymentStatus },
   });
 
   await createNotification({
@@ -389,10 +399,37 @@ const updateTracking = catchAsync(async (req, res, next) => {
 const markPaymentBySession = catchAsync(async (req, res, next) => {
   const { sessionId } = req.body;
 
+  if (!sessionId || typeof sessionId !== 'string') {
+    return next(new AppError('Stripe sessionId is required', 400));
+  }
+
   const order = await Order.findOne({ stripeSessionId: sessionId });
 
   if (!order) {
     return next(new AppError('Order not found for this payment session', 404));
+  }
+
+  if (String(order.buyer) !== String(req.user._id)) {
+    return next(new AppError('Not authorized to confirm this payment', 403));
+  }
+
+  const stripe = getStripe();
+  if (!stripe) {
+    return next(new AppError('Stripe payment confirmation is unavailable', 503));
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+  if (!session || session.payment_status !== 'paid') {
+    return next(new AppError('Payment is not completed for this session', 400));
+  }
+
+  if (session.metadata?.orderId && String(session.metadata.orderId) !== String(order._id)) {
+    return next(new AppError('Payment session does not match this order', 400));
+  }
+
+  if (session.metadata?.buyerId && String(session.metadata.buyerId) !== String(req.user._id)) {
+    return next(new AppError('Payment session does not belong to this account', 403));
   }
 
   order.paymentStatus = 'paid';

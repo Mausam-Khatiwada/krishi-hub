@@ -5,7 +5,9 @@ import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { logoutUser } from '../features/auth/authSlice';
 import { formatCurrency } from '../utils/format';
 import {
+  BoltIcon,
   CartIcon,
+  CommandIcon,
   CompassIcon,
   DashboardIcon,
   HeartIcon,
@@ -13,6 +15,7 @@ import {
   LeafIcon,
   LogoutIcon,
   MessageCircleIcon,
+  SearchIcon,
   SettingsIcon,
   ShieldCheckIcon,
   StoreIcon,
@@ -20,6 +23,8 @@ import {
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 import NotificationPanel from './NotificationPanel';
+
+const OPEN_COMMAND_PALETTE_EVENT = 'krishihub:open-command-palette';
 
 const Navbar = () => {
   const { t } = useTranslation();
@@ -43,21 +48,36 @@ const Navbar = () => {
     navigate('/');
   };
 
+  const openCommandPalette = () => {
+    window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT));
+  };
+
   return (
-    <header className="sticky top-0 z-50 px-3 pt-3">
-      <div className="mx-auto max-w-7xl glass-strip px-3 py-3 md:px-4">
+    <header className="sticky top-0 z-50 px-3 pt-3 md:px-4">
+      <div className="mx-auto max-w-[88rem] glass-strip px-3 py-3 md:px-4">
         <div className="flex flex-wrap items-center gap-2.5 md:gap-3">
-          <Link to="/" className="mr-1 inline-flex items-center gap-2.5 rounded-2xl px-1 py-1 transition hover:bg-[var(--bg-soft)]/60">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white shadow-lg">
+          <Link to="/" className="mr-1 inline-flex items-center gap-2.5 rounded-2xl px-1.5 py-1 transition hover:bg-[var(--bg-soft)]/65">
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-[#14b45f] text-white shadow-lg">
               <LeafIcon className="h-5 w-5" />
             </span>
             <span>
-              <p className="font-['Sora'] text-base font-bold tracking-tight text-[var(--accent-3)]">{t('brand')}</p>
-              <p className="-mt-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Direct Farm Connect</p>
+              <p className="font-display text-base font-bold tracking-tight text-[var(--accent-3)]">{t('brand')}</p>
+              <p className="-mt-0.5 text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Smart Agri Commerce</p>
             </span>
           </Link>
 
-          <nav className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            className="btn-secondary hidden lg:inline-flex"
+            title="Open command palette (Ctrl/Cmd + K)"
+          >
+            <SearchIcon className="h-4 w-4" />
+            <span>Quick Search</span>
+            <span className="command-hint">Ctrl+K</span>
+          </button>
+
+          <nav className="nav-scroll md:ml-1">
             <NavLink to="/" className={linkClass}>
               <HomeIcon className="h-4 w-4" />
               {t('home')}
@@ -75,20 +95,23 @@ const Navbar = () => {
             {user?.role === 'buyer' && (
               <NavLink to="/cart" className={linkClass}>
                 <CartIcon className="h-4 w-4" />
-                {t('cart')}
-                <span className="badge">{cartCount}</span>
+                <span className="hidden sm:inline">{t('cart')}</span>
+                <span className="badge !px-1.5 !py-0.5">{cartCount}</span>
               </NavLink>
             )}
             {user?.role === 'buyer' && (
               <NavLink to="/wishlist" className={linkClass}>
                 <HeartIcon className="h-4 w-4" />
-                Wishlist
-                <span className="badge">{wishlistCount}</span>
+                <span className="hidden sm:inline">Wishlist</span>
+                <span className="badge !px-1.5 !py-0.5">{wishlistCount}</span>
               </NavLink>
             )}
           </nav>
 
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+            <button type="button" onClick={openCommandPalette} className="icon-button lg:hidden" title="Open command palette">
+              <CommandIcon className="h-4 w-4" />
+            </button>
             <LanguageToggle />
             <ThemeToggle />
             {user && <NotificationPanel />}
@@ -97,24 +120,25 @@ const Navbar = () => {
               <>
                 <NavLink to={dashboardPath} className={linkClass}>
                   <DashboardIcon className="h-4 w-4" />
-                  {t('dashboard')}
+                  <span className="hidden xl:inline">{t('dashboard')}</span>
                 </NavLink>
                 <NavLink to="/orders" className={linkClass}>
                   <StoreIcon className="h-4 w-4" />
-                  {t('orders')}
+                  <span className="hidden xl:inline">{t('orders')}</span>
                 </NavLink>
                 <NavLink to="/settings" className={linkClass}>
                   <SettingsIcon className="h-4 w-4" />
-                  Settings
+                  <span className="hidden xl:inline">Settings</span>
                 </NavLink>
                 <button type="button" onClick={onLogout} className="btn-secondary">
                   <LogoutIcon className="h-4 w-4" />
-                  {t('logout')}
+                  <span className="hidden xl:inline">{t('logout')}</span>
                 </button>
               </>
             ) : (
               <>
                 <NavLink to="/login" className={linkClass}>
+                  <BoltIcon className="h-4 w-4" />
                   {t('login')}
                 </NavLink>
                 <NavLink to="/register" className={linkClass}>
@@ -126,16 +150,16 @@ const Navbar = () => {
         </div>
 
         {user && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)]/76 px-3 py-2 text-xs text-[var(--text-muted)]">
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)]/80 px-3 py-2 text-xs text-[var(--text-muted)]">
             <span className="font-semibold text-[var(--text)]">{user.name}</span>
             <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-soft)] px-2 py-0.5 uppercase tracking-[0.08em] text-[10px] font-bold text-[var(--text-muted)]">
               <ShieldCheckIcon className="h-3.5 w-3.5" />
               {user.role}
             </span>
             <span>
-              Wallet:{' '}
-              <strong className="text-[var(--accent)]">{formatCurrency(user.walletBalance)}</strong>
+              Wallet: <strong className="text-[var(--accent)]">{formatCurrency(user.walletBalance)}</strong>
             </span>
+            <span className="command-hint hidden md:inline-flex">Ctrl/Cmd + K</span>
             {user?.isFarmerVerified && <span className="badge-verified">Verified Farmer</span>}
           </div>
         )}
@@ -145,3 +169,4 @@ const Navbar = () => {
 };
 
 export default Navbar;
+

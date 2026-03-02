@@ -26,6 +26,15 @@ const globalErrorHandler = require('./middleware/errorMiddleware');
 const sanitizeRequest = require('./middleware/sanitizeMiddleware');
 
 const app = express();
+const normalizeOrigin = (value = '') => String(value).trim().replace(/\/+$/, '');
+const allowedOrigins = String(process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => normalizeOrigin(origin))
+  .filter(Boolean);
+const isOriginAllowed = (origin) => !origin || allowedOrigins.includes(normalizeOrigin(origin));
+
+app.disable('x-powered-by');
+
 app.get('/', (req, res) => {
   res.json({ status: 'success', message: 'API is running!' });
 });
@@ -33,8 +42,13 @@ app.set('trust proxy', 1);
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL?.split(',') || ['http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   }),
 );
 
@@ -47,6 +61,14 @@ app.use(
     message: 'Too many requests. Please try again later.',
   }),
 );
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX || 80),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many authentication requests. Please try again later.',
+});
 
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
@@ -69,6 +91,12 @@ app.use((req, _res, next) => {
   req.io = app.get('io');
   next();
 });
+
+app.use('/api/v1/auth/login', authLimiter);
+app.use('/api/v1/auth/google', authLimiter);
+app.use('/api/v1/auth/register/request-otp', authLimiter);
+app.use('/api/v1/auth/register/verify', authLimiter);
+app.use('/api/v1/auth/register/resend-otp', authLimiter);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);

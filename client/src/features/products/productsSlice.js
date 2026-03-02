@@ -1,11 +1,35 @@
-﻿import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import api from '../../api/client';
+
+const RECENTLY_VIEWED_STORAGE_KEY = 'krishihub_recently_viewed';
+const RECENTLY_VIEWED_LIMIT = 8;
+
+const loadRecentlyViewed = () => {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = localStorage.getItem(RECENTLY_VIEWED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, RECENTLY_VIEWED_LIMIT) : [];
+  } catch (_error) {
+    return [];
+  }
+};
+
+const persistRecentlyViewed = (items) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(
+    RECENTLY_VIEWED_STORAGE_KEY,
+    JSON.stringify((items || []).slice(0, RECENTLY_VIEWED_LIMIT)),
+  );
+};
 
 const initialState = {
   products: [],
   product: null,
   categories: [],
   recommendations: [],
+  recentlyViewed: loadRecentlyViewed(),
   farmerProducts: [],
   wishlist: [],
   loading: false,
@@ -50,14 +74,17 @@ export const fetchCategories = createAsyncThunk('products/fetchCategories', asyn
   }
 });
 
-export const fetchRecommendations = createAsyncThunk('products/fetchRecommendations', async (_, thunkAPI) => {
-  try {
-    const { data } = await api.get('/products/recommendations/for/me');
-    return data.recommendations;
-  } catch (error) {
-    return thunkAPI.rejectWithValue(error.response?.data?.message || 'Failed to load recommendations');
-  }
-});
+export const fetchRecommendations = createAsyncThunk(
+  'products/fetchRecommendations',
+  async (_, thunkAPI) => {
+    try {
+      const { data } = await api.get('/products/recommendations/for/me');
+      return data.recommendations;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(error.response?.data?.message || 'Failed to load recommendations');
+    }
+  },
+);
 
 export const toggleWishlistProduct = createAsyncThunk(
   'products/toggleWishlistProduct',
@@ -113,14 +140,17 @@ export const createProduct = createAsyncThunk('products/createProduct', async (f
   }
 });
 
-export const fetchFarmerProducts = createAsyncThunk('products/fetchFarmerProducts', async (_, thunkAPI) => {
-  try {
-    const { data } = await api.get('/products/farmer/list/me');
-    return data.products;
-  } catch (error) {
-    return thunkAPI.rejectWithValue(error.response?.data?.message || 'Failed to load farmer products');
-  }
-});
+export const fetchFarmerProducts = createAsyncThunk(
+  'products/fetchFarmerProducts',
+  async (_, thunkAPI) => {
+    try {
+      const { data } = await api.get('/products/farmer/list/me');
+      return data.products;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(error.response?.data?.message || 'Failed to load farmer products');
+    }
+  },
+);
 
 export const updateProduct = createAsyncThunk('products/updateProduct', async ({ id, payload }, thunkAPI) => {
   try {
@@ -172,6 +202,34 @@ const productsSlice = createSlice({
   reducers: {
     setProductFilters: (state, action) => {
       state.filters = { ...state.filters, ...action.payload };
+    },
+    trackRecentlyViewed: (state, action) => {
+      const product = action.payload;
+      if (!product?._id) return;
+
+      const lightweightProduct = {
+        _id: product._id,
+        name: product.name,
+        description: product.description,
+        pricePerUnit: product.pricePerUnit,
+        quantityAvailable: product.quantityAvailable,
+        organic: product.organic,
+        images: product.images,
+        location: product.location,
+        category: product.category,
+        farmer: product.farmer,
+      };
+
+      state.recentlyViewed = [
+        lightweightProduct,
+        ...state.recentlyViewed.filter((item) => item._id !== lightweightProduct._id),
+      ].slice(0, RECENTLY_VIEWED_LIMIT);
+
+      persistRecentlyViewed(state.recentlyViewed);
+    },
+    clearRecentlyViewed: (state) => {
+      state.recentlyViewed = [];
+      persistRecentlyViewed([]);
     },
     clearProductError: (state) => {
       state.error = null;
@@ -243,5 +301,6 @@ const productsSlice = createSlice({
   },
 });
 
-export const { setProductFilters, clearProductError } = productsSlice.actions;
+export const { setProductFilters, trackRecentlyViewed, clearRecentlyViewed, clearProductError } =
+  productsSlice.actions;
 export default productsSlice.reducer;

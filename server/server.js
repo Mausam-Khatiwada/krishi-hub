@@ -5,6 +5,9 @@ const jwt = require('jsonwebtoken');
 
 dotenv.config();
 
+const validateEnv = require('./config/validateEnv');
+validateEnv();
+
 const app = require('./app');
 const connectDB = require('./config/db');
 const setupCloudinary = require('./config/cloudinary');
@@ -15,9 +18,19 @@ setupCloudinary();
 
 const server = http.createServer(app);
 
+const normalizeOrigin = (value = '') => String(value).trim().replace(/\/+$/, '');
+const allowedOrigins = String(process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => normalizeOrigin(origin))
+  .filter(Boolean);
+const isOriginAllowed = (origin) => !origin || allowedOrigins.includes(normalizeOrigin(origin));
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL?.split(',') || ['http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   },
 });

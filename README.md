@@ -1,6 +1,6 @@
 ﻿# Krishihub - Full-Stack MERN Agricultural Marketplace
 
-Krishihub is a role-based MERN e-commerce platform that connects farmers directly with buyers. It includes JWT auth, product management, order flow with Stripe checkout, analytics dashboards, admin moderation, multilingual UI (English/Nepali), real-time chat, and responsive design.
+Krishihub is a role-based MERN e-commerce platform that connects farmers directly with buyers. It includes JWT auth, Google login, TOTP 2FA, email OTP registration verification, account lockout protection, product management, order flow with Stripe checkout, analytics dashboards, admin moderation, multilingual UI (English/Nepali), real-time chat, and responsive design.
 
 ## Tech Stack
 
@@ -54,6 +54,10 @@ krishi-hub/
 
 ### Buyer
 - Register/login
+- Google Sign-In (OAuth credential flow)
+- Two-factor authentication with authenticator apps (setup/enable/disable)
+- Email OTP verification during registration
+- Failed-login lockout policy and login security alert emails
 - Browse/search/filter/sort products
 - Product detail view with Google Maps embed
 - Cart and checkout flow
@@ -81,10 +85,16 @@ krishi-hub/
 - Real-time inventory updates via Socket.io events
 - Real-time buyer-farmer messaging (chat rooms)
 - In-app notifications module
+- Recently viewed products history
+- Progressive Web App (PWA) support with install prompt + service worker caching
 - Coupon-aware order API
 - PDF invoice generation
 - Community discussion forum
 - Crop trend analytics endpoint + frontend chart
+- Admin Intelligence Suite:
+  - Dynamic Pricing Engine with guarded bulk apply
+  - Smart Inventory & Supply Chain Automation
+  - Advanced Marketing Automation with segmentation and optional auto-coupon generation
 - Security middleware: helmet, rate limiting, mongo sanitize, hpp, xss clean
 - Lazy-loaded route pages for performance
 
@@ -113,6 +123,28 @@ npm run dev
 
 Frontend runs on `http://localhost:5173`.
 
+### Google + 2FA Configuration
+
+- Set `GOOGLE_CLIENT_ID` in `server/.env`
+- Set `VITE_GOOGLE_CLIENT_ID` in `client/.env` (same client ID)
+- Optional:
+  - `TWO_FACTOR_ISSUER` (default: `Krishihub`)
+  - `TWO_FACTOR_TOKEN_EXPIRES_IN` (default: `10m`)
+  - `MAX_FAILED_LOGIN_ATTEMPTS` (default: `5`)
+  - `LOGIN_LOCK_MINUTES` (default: `15`)
+  - `REGISTER_OTP_LENGTH` (default: `6`)
+  - `REGISTER_OTP_EXPIRES_MINUTES` (default: `10`)
+  - `REGISTER_OTP_RESEND_SECONDS` (default: `45`)
+  - `AUTH_RATE_LIMIT_MAX` (default: `80` requests/15 min for auth endpoints)
+  - `COOKIE_SAME_SITE` (`lax`, `strict`, or `none`)
+  - `COOKIE_MAX_AGE_MS` (default: `604800000`)
+  - `SMTP_SECURE` (auto-detected by port if unset)
+  - `SMTP_TLS_REJECT_UNAUTHORIZED` (default: `true`)
+
+Security note:
+- Production startup now validates critical environment variables and rejects weak/placeholder `JWT_SECRET` values.
+- Production startup also requires full SMTP configuration because registration uses email OTP verification.
+
 ## Test Accounts
 
 - Seeded admin is created when `ADMIN_EMAIL` + `ADMIN_PASSWORD` are set in `server/.env` before running `npm run seed`.
@@ -132,6 +164,29 @@ Backend module load check passes:
 ```bash
 cd server
 node -e "require('./app'); console.log('server app ok')"
+```
+
+Backend syntax check for all server files:
+
+```bash
+cd server
+node --check server.js
+```
+
+Backend production preflight (env validation + DB connection + health routes):
+
+```bash
+cd server
+npm run preflight
+```
+
+Dependency vulnerability check:
+
+```bash
+cd server
+npm audit --omit=dev
+cd ../client
+npm audit --omit=dev
 ```
 
 ## API Documentation

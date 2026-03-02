@@ -6,16 +6,39 @@ const validateRequest = require('../middleware/validateMiddleware');
 
 const router = express.Router();
 
+const registerValidators = [
+  body('name').trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('role').optional().isIn(['farmer', 'buyer']).withMessage('Role must be farmer or buyer'),
+];
+
+router.post('/register/request-otp', [...registerValidators, validateRequest], authController.requestRegisterOtp);
+
 router.post(
-  '/register',
+  '/register/verify',
   [
-    body('name').trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
-    body('email').isEmail().withMessage('Valid email is required'),
+    body('registerChallengeToken').notEmpty().withMessage('Registration challenge token is required'),
+    body('otpCode')
+      .notEmpty()
+      .isNumeric()
+      .withMessage('OTP code must be numeric')
+      .bail()
+      .isLength({ min: 4, max: 8 })
+      .withMessage('OTP code must be 4-8 digits'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-    body('role').optional().isIn(['farmer', 'buyer']).withMessage('Role must be farmer or buyer'),
     validateRequest,
   ],
-  authController.register,
+  authController.verifyRegisterOtp,
+);
+
+router.post(
+  '/register/resend-otp',
+  [
+    body('registerChallengeToken').notEmpty().withMessage('Registration challenge token is required'),
+    validateRequest,
+  ],
+  authController.resendRegisterOtp,
 );
 
 router.post(
@@ -23,9 +46,41 @@ router.post(
   [
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').notEmpty().withMessage('Password is required'),
+    body('twoFactorCode')
+      .optional({ values: 'falsy' })
+      .isNumeric()
+      .withMessage('Two-factor code must be numeric')
+      .bail()
+      .isLength({ min: 6, max: 6 })
+      .withMessage('Two-factor code must be 6 digits'),
+    body('twoFactorAuthToken')
+      .optional()
+      .isString()
+      .withMessage('Two-factor auth token must be a string'),
     validateRequest,
   ],
   authController.login,
+);
+
+router.post(
+  '/google',
+  [
+    body('credential').notEmpty().withMessage('Google credential is required'),
+    body('role').optional().isIn(['farmer', 'buyer']).withMessage('Role must be farmer or buyer'),
+    body('twoFactorCode')
+      .optional({ values: 'falsy' })
+      .isNumeric()
+      .withMessage('Two-factor code must be numeric')
+      .bail()
+      .isLength({ min: 6, max: 6 })
+      .withMessage('Two-factor code must be 6 digits'),
+    body('twoFactorAuthToken')
+      .optional()
+      .isString()
+      .withMessage('Two-factor auth token must be a string'),
+    validateRequest,
+  ],
+  authController.loginWithGoogle,
 );
 
 router.post('/logout', authController.logout);
@@ -55,6 +110,25 @@ router.patch(
 );
 router.patch('/preferences', protect, authController.updatePreferences);
 router.patch('/security', protect, authController.updateSecurity);
+router.post('/2fa/setup', protect, authController.setupTwoFactor);
+router.post(
+  '/2fa/enable',
+  protect,
+  [
+    body('token').isLength({ min: 6, max: 6 }).withMessage('Authentication code must be 6 digits'),
+    validateRequest,
+  ],
+  authController.enableTwoFactor,
+);
+router.post(
+  '/2fa/disable',
+  protect,
+  [
+    body('token').isLength({ min: 6, max: 6 }).withMessage('Authentication code must be 6 digits'),
+    validateRequest,
+  ],
+  authController.disableTwoFactor,
+);
 router.patch('/addresses', protect, authController.updateAddresses);
 router.patch('/role-profile', protect, authController.updateRoleProfile);
 router.delete(

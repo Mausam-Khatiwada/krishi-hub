@@ -20,7 +20,10 @@ import { formatCurrency, formatDate } from '../utils/format';
 import usePageTitle from '../hooks/usePageTitle';
 import { getSocket } from '../utils/socket';
 import {
+  BoltIcon,
+  CandleChartIcon,
   CheckCircleIcon,
+  ClockIcon,
   DropletIcon,
   LeafIcon,
   PackageIcon,
@@ -30,6 +33,7 @@ import {
   ThermometerIcon,
   TrendUpIcon,
   TruckIcon,
+  UserGroupIcon,
 } from '../components/icons/AppIcons';
 
 const FarmerDashboardPage = () => {
@@ -58,6 +62,9 @@ const FarmerDashboardPage = () => {
   const [videoFiles, setVideoFiles] = useState([]);
   const [suggestedPrice, setSuggestedPrice] = useState(null);
   const [inventoryDraft, setInventoryDraft] = useState({});
+  const [demandInsights, setDemandInsights] = useState([]);
+  const [customerInsights, setCustomerInsights] = useState([]);
+  const [farmerIntelLoading, setFarmerIntelLoading] = useState(false);
 
   useEffect(() => {
     dispatch(fetchCategories());
@@ -69,7 +76,10 @@ const FarmerDashboardPage = () => {
   useEffect(() => {
     if (!user?._id) return;
     const socket = getSocket({ userId: user._id, token });
-    socket.on('inventory:update', () => dispatch(fetchFarmerProducts()));
+    socket.on('inventory:update', () => {
+      dispatch(fetchFarmerProducts());
+      loadAdvancedInsights();
+    });
     return () => socket.off('inventory:update');
   }, [dispatch, token, user?._id]);
 
@@ -86,10 +96,42 @@ const FarmerDashboardPage = () => {
     loadWeather();
   }, [user?.location?.district]);
 
+  useEffect(() => {
+    loadAdvancedInsights();
+  }, []);
+
   const lowStockProducts = useMemo(
     () => farmerProducts.filter((product) => Number(product.quantityAvailable) < 30),
     [farmerProducts],
   );
+
+  const criticalStockCount = useMemo(
+    () => demandInsights.filter((item) => item.metrics?.stockRisk === 'critical').length,
+    [demandInsights],
+  );
+
+  const vipCustomerCount = useMemo(
+    () => customerInsights.filter((item) => item.metrics?.segment === 'vip').length,
+    [customerInsights],
+  );
+
+  const loadAdvancedInsights = async () => {
+    setFarmerIntelLoading(true);
+    try {
+      const [demandResponse, customerResponse] = await Promise.all([
+        api.get('/users/insights/farmer-demand'),
+        api.get('/users/insights/farmer-customers'),
+      ]);
+
+      setDemandInsights(demandResponse.data?.insights?.productInsights || []);
+      setCustomerInsights(customerResponse.data?.insights?.customers || []);
+    } catch (_error) {
+      setDemandInsights([]);
+      setCustomerInsights([]);
+    } finally {
+      setFarmerIntelLoading(false);
+    }
+  };
 
   const handleInputChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -131,6 +173,7 @@ const FarmerDashboardPage = () => {
       setImageFiles([]);
       setVideoFiles([]);
       dispatch(fetchFarmerProducts());
+      loadAdvancedInsights();
     } else {
       toast.error(action.payload || 'Failed to create product');
     }
@@ -143,8 +186,50 @@ const FarmerDashboardPage = () => {
     if (quickUpdateProduct.fulfilled.match(action)) {
       toast.success('Inventory updated');
       setInventoryDraft((prev) => ({ ...prev, [productId]: undefined }));
+      loadAdvancedInsights();
     } else {
       toast.error(action.payload || 'Failed to update inventory');
+    }
+  };
+
+  const applySuggestedPrice = async (insight) => {
+    const productId = insight?.product?._id;
+    const suggested = insight?.metrics?.suggestedPrice;
+    if (!productId || !Number.isFinite(Number(suggested))) return;
+
+    const action = await dispatch(
+      quickUpdateProduct({
+        id: productId,
+        payload: { pricePerUnit: Number(suggested) },
+      }),
+    );
+
+    if (quickUpdateProduct.fulfilled.match(action)) {
+      toast.success('Suggested price applied');
+      loadAdvancedInsights();
+    } else {
+      toast.error(action.payload || 'Failed to apply suggested price');
+    }
+  };
+
+  const applyRestockPlan = async (insight) => {
+    const productId = insight?.product?._id;
+    const recommendedRestock = Number(insight?.metrics?.recommendedRestock || 0);
+    const currentQty = Number(insight?.product?.quantityAvailable || 0);
+    if (!productId || recommendedRestock <= 0) return;
+
+    const action = await dispatch(
+      quickUpdateProduct({
+        id: productId,
+        payload: { quantityAvailable: currentQty + recommendedRestock },
+      }),
+    );
+
+    if (quickUpdateProduct.fulfilled.match(action)) {
+      toast.success(`Restock applied (+${recommendedRestock})`);
+      loadAdvancedInsights();
+    } else {
+      toast.error(action.payload || 'Failed to apply restock plan');
     }
   };
 
@@ -153,6 +238,7 @@ const FarmerDashboardPage = () => {
     if (setFarmerDecision.fulfilled.match(action)) {
       toast.success(`Order ${decision}`);
       dispatch(fetchFarmerOrders());
+      loadAdvancedInsights();
     } else {
       toast.error(action.payload || 'Failed to update order');
     }
@@ -163,6 +249,7 @@ const FarmerDashboardPage = () => {
     if (setOrderStatus.fulfilled.match(action)) {
       toast.success(`Order marked ${status}`);
       dispatch(fetchFarmerOrders());
+      loadAdvancedInsights();
     } else {
       toast.error(action.payload || 'Failed to mark status');
     }
@@ -191,7 +278,7 @@ const FarmerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <article className="metric-card p-4">
           <p className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
             <TrendUpIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
@@ -219,6 +306,20 @@ const FarmerDashboardPage = () => {
             Wallet
           </p>
           <p className="mt-1 text-2xl font-bold">{formatCurrency(farmerAnalytics?.walletBalance || 0)}</p>
+        </article>
+        <article className="metric-card p-4">
+          <p className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            <BoltIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
+            Critical stock
+          </p>
+          <p className="mt-1 text-2xl font-bold">{criticalStockCount}</p>
+        </article>
+        <article className="metric-card p-4">
+          <p className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            <UserGroupIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
+            VIP buyers
+          </p>
+          <p className="mt-1 text-2xl font-bold">{vipCustomerCount}</p>
         </article>
       </section>
 
@@ -274,6 +375,127 @@ const FarmerDashboardPage = () => {
               </p>
             ))}
             {!lowStockProducts.length && <p className="text-[var(--text-muted)]">No low-stock products.</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.7fr_1fr]">
+        <div className="app-card p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="inline-flex items-center gap-2 panel-title">
+              <CandleChartIcon className="h-5 w-5 text-[var(--accent)]" />
+              Smart Inventory & Pricing Engine
+            </h2>
+            {farmerIntelLoading ? <span className="text-xs text-[var(--text-muted)]">Refreshing insights...</span> : null}
+          </div>
+          {demandInsights.length ? (
+            <div className="table-shell">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Demand</th>
+                    <th>Stock Risk</th>
+                    <th>30d Units</th>
+                    <th>Stockout ETA</th>
+                    <th>Suggested Price</th>
+                    <th>Automation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {demandInsights.slice(0, 10).map((insight) => (
+                    <tr key={insight.product?._id}>
+                      <td>
+                        <p className="font-semibold">{insight.product?.name}</p>
+                        <p className="text-xs text-[var(--text-muted)]">{insight.product?.category?.name || 'Uncategorized'}</p>
+                      </td>
+                      <td className="capitalize">{insight.metrics?.demandSignal || 'steady'}</td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            insight.metrics?.stockRisk === 'critical'
+                              ? 'border-rose-400/40 bg-rose-500/10 text-rose-700'
+                              : insight.metrics?.stockRisk === 'watch'
+                                ? 'border-amber-400/40 bg-amber-500/10 text-amber-700'
+                                : ''
+                          }`}
+                        >
+                          {insight.metrics?.stockRisk || 'stable'}
+                        </span>
+                      </td>
+                      <td>{insight.metrics?.sold30d || 0}</td>
+                      <td>
+                        {Number.isFinite(insight.metrics?.daysToStockout)
+                          ? `${insight.metrics.daysToStockout} days`
+                          : 'N/A'}
+                      </td>
+                      <td>
+                        <p className="font-semibold">{formatCurrency(insight.metrics?.suggestedPrice || 0)}</p>
+                        <p className="text-xs text-[var(--text-muted)]">
+                          {insight.metrics?.suggestedPriceDelta >= 0 ? '+' : ''}
+                          {formatCurrency(insight.metrics?.suggestedPriceDelta || 0)} vs current
+                        </p>
+                      </td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          <button type="button" className="btn-secondary" onClick={() => applySuggestedPrice(insight)}>
+                            Apply price
+                          </button>
+                          {insight.metrics?.recommendedRestock > 0 && (
+                            <button type="button" className="btn-primary" onClick={() => applyRestockPlan(insight)}>
+                              Restock +{insight.metrics.recommendedRestock}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--text-muted)]">
+              Demand intelligence appears after paid or delivered order history.
+            </p>
+          )}
+        </div>
+
+        <div className="app-card p-5">
+          <h2 className="inline-flex items-center gap-2 panel-title">
+            <UserGroupIcon className="h-5 w-5 text-[var(--accent)]" />
+            Buyer Intelligence CRM
+          </h2>
+          <div className="mt-3 space-y-2">
+            {customerInsights.slice(0, 8).map((entry) => (
+              <article key={entry.buyer?._id} className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold">{entry.buyer?.name}</p>
+                  <span
+                    className={`badge ${
+                      entry.metrics?.segment === 'vip'
+                        ? 'border-indigo-400/40 bg-indigo-500/10 text-indigo-700'
+                        : entry.metrics?.segment === 'loyal'
+                          ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700'
+                          : ''
+                    }`}
+                  >
+                    {entry.metrics?.segment || 'emerging'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[var(--text-muted)]">
+                  {entry.metrics?.ordersCount || 0} orders | {formatCurrency(entry.metrics?.totalSpend || 0)}
+                </p>
+                <p className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                  <ClockIcon className="h-3.5 w-3.5" />
+                  Last order {entry.metrics?.daysSinceLastOrder ?? '-'} day(s) ago
+                </p>
+              </article>
+            ))}
+            {!customerInsights.length && (
+              <p className="text-sm text-[var(--text-muted)]">
+                Customer intelligence will show as repeat buyer data grows.
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -400,7 +622,12 @@ const FarmerDashboardPage = () => {
                     <button
                       type="button"
                       className="btn-danger"
-                      onClick={() => dispatch(deleteProduct(product._id)).then(() => dispatch(fetchFarmerProducts()))}
+                      onClick={() =>
+                        dispatch(deleteProduct(product._id)).then(() => {
+                          dispatch(fetchFarmerProducts());
+                          loadAdvancedInsights();
+                        })
+                      }
                     >
                       Delete
                     </button>

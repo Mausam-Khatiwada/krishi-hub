@@ -15,7 +15,7 @@ const ThemeToggle = () => {
       title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {dark ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
-      {dark ? 'Light' : 'Dark'}
+      <span className="hidden md:inline">{dark ? 'Light' : 'Dark'}</span>
     </button>
   );
 };

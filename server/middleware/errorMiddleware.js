@@ -7,9 +7,19 @@ const handleDuplicateFieldsDB = (err) => {
   return new AppError(`Duplicate value for field: ${field}`, 400);
 };
 
+const handleValidationErrorDB = (err) => {
+  const messages = Object.values(err.errors || {})
+    .map((item) => item.message)
+    .filter(Boolean);
+
+  return new AppError(messages.join('. ') || 'Validation failed', 400);
+};
+
 const handleJWTError = () => new AppError('Invalid token. Please log in again.', 401);
 
 const handleJWTExpiredError = () => new AppError('Your token has expired. Please log in again.', 401);
+
+const handleMulterError = (err) => new AppError(err.message || 'File upload failed', 400);
 
 const globalErrorHandler = (err, _req, res, _next) => {
   let error = err;
@@ -26,12 +36,20 @@ const globalErrorHandler = (err, _req, res, _next) => {
     error = handleDuplicateFieldsDB(err);
   }
 
+  if (err.name === 'ValidationError') {
+    error = handleValidationErrorDB(err);
+  }
+
   if (err.name === 'JsonWebTokenError') {
     error = handleJWTError();
   }
 
   if (err.name === 'TokenExpiredError') {
     error = handleJWTExpiredError();
+  }
+
+  if (err.name === 'MulterError') {
+    error = handleMulterError(err);
   }
 
   res.status(error.statusCode || 500).json({

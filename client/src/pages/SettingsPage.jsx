@@ -8,6 +8,7 @@ import { fetchMe, logoutUser, updateProfile } from '../features/auth/authSlice';
 import { restoreTheme } from '../features/ui/uiSlice';
 import usePageTitle from '../hooks/usePageTitle';
 import { formatCurrency, formatDate } from '../utils/format';
+import { CheckCircleIcon, LockIcon, ShieldCheckIcon, SparkleIcon } from '../components/icons/AppIcons';
 
 const DEFAULT_ADDRESS = {
   label: '',
@@ -89,8 +90,16 @@ const SettingsPage = () => {
   });
 
   const [securityForm, setSecurityForm] = useState({
-    twoFactorEnabled: false,
     loginAlerts: true,
+  });
+  const [twoFactorSetup, setTwoFactorSetup] = useState({
+    qrCodeDataUrl: '',
+    secret: '',
+    token: '',
+    disableToken: '',
+    preparing: false,
+    enabling: false,
+    disabling: false,
   });
 
   const [addresses, setAddresses] = useState([]);
@@ -169,7 +178,6 @@ const SettingsPage = () => {
     });
 
     setSecurityForm({
-      twoFactorEnabled: user.security?.twoFactorEnabled ?? false,
       loginAlerts: user.security?.loginAlerts ?? true,
     });
 
@@ -246,11 +254,88 @@ const SettingsPage = () => {
 
   const onSaveSecuritySettings = async () => {
     try {
-      await api.patch('/auth/security', { security: securityForm });
+      await api.patch('/auth/security', {
+        security: {
+          loginAlerts: securityForm.loginAlerts,
+        },
+      });
       await refreshUserAndOverview();
       toast.success('Security settings updated');
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to update security settings');
+    }
+  };
+
+  const startTwoFactorSetup = async () => {
+    try {
+      setTwoFactorSetup((previous) => ({ ...previous, preparing: true }));
+      const { data } = await api.post('/auth/2fa/setup');
+
+      setTwoFactorSetup((previous) => ({
+        ...previous,
+        qrCodeDataUrl: data.setup?.qrCodeDataUrl || '',
+        secret: data.setup?.secret || '',
+        token: '',
+      }));
+      toast.success('Authenticator setup generated');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to start 2FA setup');
+    } finally {
+      setTwoFactorSetup((previous) => ({ ...previous, preparing: false }));
+    }
+  };
+
+  const onEnableTwoFactor = async () => {
+    const token = twoFactorSetup.token.trim();
+    if (!token || token.length !== 6) {
+      toast.error('Enter a valid 6-digit code');
+      return;
+    }
+
+    try {
+      setTwoFactorSetup((previous) => ({ ...previous, enabling: true }));
+      await api.post('/auth/2fa/enable', { token });
+      await refreshUserAndOverview();
+      setTwoFactorSetup({
+        qrCodeDataUrl: '',
+        secret: '',
+        token: '',
+        disableToken: '',
+        preparing: false,
+        enabling: false,
+        disabling: false,
+      });
+      toast.success('Two-factor authentication enabled');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to enable 2FA');
+    } finally {
+      setTwoFactorSetup((previous) => ({ ...previous, enabling: false }));
+    }
+  };
+
+  const onDisableTwoFactor = async () => {
+    const token = twoFactorSetup.disableToken.trim();
+    if (!token || token.length !== 6) {
+      toast.error('Enter a valid 6-digit code');
+      return;
+    }
+
+    try {
+      setTwoFactorSetup((previous) => ({ ...previous, disabling: true }));
+      await api.post('/auth/2fa/disable', { token });
+      await refreshUserAndOverview();
+      setTwoFactorSetup((previous) => ({
+        ...previous,
+        qrCodeDataUrl: '',
+        secret: '',
+        token: '',
+        disableToken: '',
+      }));
+      toast.success('Two-factor authentication disabled');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to disable 2FA');
+    } finally {
+      setTwoFactorSetup((previous) => ({ ...previous, disabling: false }));
     }
   };
 
@@ -625,20 +710,123 @@ const SettingsPage = () => {
 
       {tab === 'security' && (
         <section className="space-y-4">
-          <div className="app-card space-y-3 p-5">
-            <h2 className="panel-title">Security Controls</h2>
+          <div className="app-card space-y-4 p-5">
+            <h2 className="panel-title inline-flex items-center gap-2">
+              <ShieldCheckIcon className="h-5 w-5 text-[var(--accent)]" />
+              Security Controls
+            </h2>
             <label className="rounded-xl border border-[var(--line)] p-3 text-sm">
               <input type="checkbox" checked={Boolean(securityForm.loginAlerts)} onChange={(event) => setSecurityForm((previous) => ({ ...previous, loginAlerts: event.target.checked }))} className="mr-2" />
               Login alerts
             </label>
-            <label className="rounded-xl border border-[var(--line)] p-3 text-sm">
-              <input type="checkbox" checked={Boolean(securityForm.twoFactorEnabled)} onChange={(event) => setSecurityForm((previous) => ({ ...previous, twoFactorEnabled: event.target.checked }))} className="mr-2" />
-              Two-factor authentication toggle
-            </label>
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/70 p-3 text-sm">
+              <p className="inline-flex items-center gap-1.5 font-semibold">
+                <LockIcon className="h-4 w-4 text-[var(--accent)]" />
+                Two-factor authentication
+              </p>
+              <p className="mt-1 text-[var(--text-muted)]">
+                Status: {user.security?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
+              </p>
+              {user.security?.twoFactorEnabled ? (
+                <span className="badge-verified mt-2 inline-flex">
+                  <CheckCircleIcon className="h-3.5 w-3.5" />
+                  Authenticator protected
+                </span>
+              ) : (
+                <span className="badge mt-2 inline-flex">Not configured</span>
+              )}
+            </div>
             <button type="button" className="btn-primary" onClick={onSaveSecuritySettings}>
-              Save security settings
+              Save alert settings
             </button>
           </div>
+
+          {!user.security?.twoFactorEnabled && (
+            <div className="app-card space-y-3 p-5">
+              <h2 className="panel-title inline-flex items-center gap-2">
+                <SparkleIcon className="h-5 w-5 text-[var(--accent)]" />
+                Enable Two-Factor Authentication
+              </h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Generate a QR code, scan it with Google Authenticator/Authy, then verify using a 6-digit code.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={startTwoFactorSetup}
+                disabled={twoFactorSetup.preparing}
+              >
+                {twoFactorSetup.preparing ? 'Generating...' : 'Generate setup QR'}
+              </button>
+
+              {twoFactorSetup.qrCodeDataUrl && (
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/60 p-3 md:grid-cols-[160px_1fr] md:items-center">
+                  <img
+                    src={twoFactorSetup.qrCodeDataUrl}
+                    alt="Two-factor QR code"
+                    className="mx-auto h-36 w-36 rounded-lg border border-[var(--line)] bg-white p-2"
+                  />
+                  <div className="space-y-2">
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Manual setup key:
+                      <span className="ml-1 rounded bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text)]">
+                        {twoFactorSetup.secret}
+                      </span>
+                    </p>
+                    <input
+                      className="input tracking-[0.28em]"
+                      placeholder="123456"
+                      maxLength={6}
+                      value={twoFactorSetup.token}
+                      onChange={(event) =>
+                        setTwoFactorSetup((previous) => ({
+                          ...previous,
+                          token: event.target.value.replace(/\D/g, ''),
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={onEnableTwoFactor}
+                      disabled={twoFactorSetup.enabling}
+                    >
+                      {twoFactorSetup.enabling ? 'Verifying...' : 'Enable 2FA'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {user.security?.twoFactorEnabled && (
+            <div className="app-card space-y-3 p-5">
+              <h2 className="panel-title text-[var(--danger)]">Disable Two-Factor Authentication</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Enter a current authenticator code to disable 2FA for this account.
+              </p>
+              <input
+                className="input max-w-xs tracking-[0.28em]"
+                placeholder="123456"
+                maxLength={6}
+                value={twoFactorSetup.disableToken}
+                onChange={(event) =>
+                  setTwoFactorSetup((previous) => ({
+                    ...previous,
+                    disableToken: event.target.value.replace(/\D/g, ''),
+                  }))
+                }
+              />
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={onDisableTwoFactor}
+                disabled={twoFactorSetup.disabling}
+              >
+                {twoFactorSetup.disabling ? 'Disabling...' : 'Disable 2FA'}
+              </button>
+            </div>
+          )}
 
           <div className="app-card space-y-3 p-5">
             <h2 className="panel-title">Change Password</h2>

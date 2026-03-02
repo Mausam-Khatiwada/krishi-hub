@@ -2,7 +2,12 @@ import { useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { fetchProductById, subscribeFarmer, toggleWishlistProduct } from '../features/products/productsSlice';
+import {
+  fetchProductById,
+  subscribeFarmer,
+  toggleWishlistProduct,
+  trackRecentlyViewed,
+} from '../features/products/productsSlice';
 import { addToCart } from '../features/cart/cartSlice';
 import { fetchMe } from '../features/auth/authSlice';
 import { openChat } from '../features/chat/chatSlice';
@@ -30,6 +35,12 @@ const ProductDetailsPage = () => {
   useEffect(() => {
     dispatch(fetchProductById(id));
   }, [dispatch, id]);
+
+  useEffect(() => {
+    if (product?._id) {
+      dispatch(trackRecentlyViewed(product));
+    }
+  }, [dispatch, product?._id]);
 
   if (!product) {
     return <LoadingSpinner />;

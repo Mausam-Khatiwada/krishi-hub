@@ -8,6 +8,13 @@ const router = express.Router();
 router.use(protect, restrictTo('admin'));
 
 router.get('/dashboard', adminController.getDashboardStats);
+router.get('/intelligence/overview', adminController.getIntelligenceOverview);
+router.get('/intelligence/dynamic-pricing', adminController.getDynamicPricingInsights);
+router.post('/intelligence/dynamic-pricing/apply', adminController.applyDynamicPricingUpdates);
+router.get('/intelligence/inventory', adminController.getInventoryAutomationInsights);
+router.post('/intelligence/inventory/automate', adminController.runInventoryAutomation);
+router.get('/intelligence/marketing', adminController.getMarketingAutomationInsights);
+router.post('/intelligence/marketing/launch', adminController.launchAutomatedCampaign);
 router.get('/users', adminController.listUsers);
 router.get('/audit-logs', adminController.listAuditLogs);
 router.patch('/users/bulk', adminController.bulkUserAction);

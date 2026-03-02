@@ -6,7 +6,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { clearAuthError, registerUser } from '../features/auth/authSlice';
+import {
+  clearAuthError,
+  clearRegisterChallenge,
+  registerUser,
+  requestRegisterOtp,
+  resendRegisterOtp,
+} from '../features/auth/authSlice';
 import usePageTitle from '../hooks/usePageTitle';
 import { ArrowRightIcon, LeafIcon, MailIcon, MapPinIcon, ShieldCheckIcon, UserIcon } from '../components/icons/AppIcons';
 
@@ -17,6 +23,7 @@ const schema = z.object({
   role: z.enum(['farmer', 'buyer']),
   district: z.string().min(2, 'District is required'),
   province: z.string().min(2, 'Province is required'),
+  otpCode: z.string().optional(),
 });
 
 const RegisterPage = () => {
@@ -25,7 +32,8 @@ const RegisterPage = () => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { loading, user, error } = useAppSelector((state) => state.auth);
+  const { loading, user, error, registerChallengeToken } = useAppSelector((state) => state.auth);
+  const requiresVerification = Boolean(registerChallengeToken);
 
   const {
     register,
@@ -36,6 +44,7 @@ const RegisterPage = () => {
     resolver: zodResolver(schema),
     defaultValues: {
       role: 'buyer',
+      otpCode: '',
     },
   });
 
@@ -54,12 +63,43 @@ const RegisterPage = () => {
       },
     };
 
-    const action = await dispatch(registerUser(payload));
+    if (!requiresVerification) {
+      const action = await dispatch(requestRegisterOtp(payload));
+      if (requestRegisterOtp.fulfilled.match(action)) {
+        toast.success('Verification code sent to your email');
+      }
+      return;
+    }
 
+    if (!values.otpCode || String(values.otpCode).replace(/\D/g, '').length < 4) {
+      toast.error('Enter the verification code sent to your email');
+      return;
+    }
+
+    const action = await dispatch(
+      registerUser({
+        registerChallengeToken,
+        otpCode: String(values.otpCode).replace(/\D/g, ''),
+        password: values.password,
+      }),
+    );
     if (registerUser.fulfilled.match(action)) {
       toast.success('Account created');
       navigate('/');
     }
+  };
+
+  const onResendOtp = async () => {
+    if (!registerChallengeToken) return;
+
+    const action = await dispatch(resendRegisterOtp({ registerChallengeToken }));
+    if (resendRegisterOtp.fulfilled.match(action)) {
+      toast.success('Verification code resent');
+    }
+  };
+
+  const resetVerification = () => {
+    dispatch(clearRegisterChallenge());
   };
 
   useEffect(() => {
@@ -74,6 +114,13 @@ const RegisterPage = () => {
       navigate('/');
     }
   }, [navigate, user]);
+
+  useEffect(
+    () => () => {
+      dispatch(clearRegisterChallenge());
+    },
+    [dispatch],
+  );
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.2fr]">
@@ -114,7 +161,7 @@ const RegisterPage = () => {
               <UserIcon className="h-4 w-4 text-[var(--accent)]" />
               Name
             </label>
-            <input id="name" {...register('name')} className="input" />
+            <input id="name" {...register('name')} disabled={requiresVerification} className="input" />
             {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>}
           </div>
 
@@ -123,7 +170,7 @@ const RegisterPage = () => {
               <MailIcon className="h-4 w-4 text-[var(--accent)]" />
               Email
             </label>
-            <input id="email" type="email" {...register('email')} className="input" />
+            <input id="email" type="email" {...register('email')} disabled={requiresVerification} className="input" />
             {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>}
           </div>
 
@@ -132,13 +179,31 @@ const RegisterPage = () => {
               <ShieldCheckIcon className="h-4 w-4 text-[var(--accent)]" />
               Password
             </label>
-            <input id="password" type="password" {...register('password')} className="input" />
+            <input id="password" type="password" {...register('password')} disabled={requiresVerification} className="input" />
             {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>}
           </div>
 
+          {requiresVerification && (
+            <div className="md:col-span-2">
+              <label htmlFor="otpCode" className="mb-1.5 inline-flex items-center gap-1.5 text-sm font-semibold">
+                <MailIcon className="h-4 w-4 text-[var(--accent)]" />
+                Email verification code
+              </label>
+              <input
+                id="otpCode"
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="Enter OTP"
+                {...register('otpCode')}
+                className="input tracking-[0.2em]"
+              />
+            </div>
+          )}
+
           <div>
             <label htmlFor="role" className="mb-1.5 block text-sm font-semibold">Role</label>
-            <select id="role" {...register('role')} className="select">
+            <select id="role" {...register('role')} disabled={requiresVerification} className="select">
               <option value="buyer">{t('buyer')}</option>
               <option value="farmer">{t('farmer')}</option>
             </select>
@@ -155,20 +220,35 @@ const RegisterPage = () => {
               <MapPinIcon className="h-4 w-4 text-[var(--accent)]" />
               District
             </label>
-            <input id="district" {...register('district')} className="input" />
+            <input id="district" {...register('district')} disabled={requiresVerification} className="input" />
             {errors.district && <p className="mt-1 text-xs text-red-600">{errors.district.message}</p>}
           </div>
 
           <div>
             <label htmlFor="province" className="mb-1.5 block text-sm font-semibold">Province</label>
-            <input id="province" {...register('province')} className="input" />
+            <input id="province" {...register('province')} disabled={requiresVerification} className="input" />
             {errors.province && <p className="mt-1 text-xs text-red-600">{errors.province.message}</p>}
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary md:col-span-2 w-full justify-center py-2.5">
-            {loading ? 'Creating...' : t('register')}
+            {loading
+              ? 'Please wait...'
+              : requiresVerification
+                ? 'Verify OTP & Create Account'
+                : 'Send Verification Code'}
             {!loading && <ArrowRightIcon className="h-4 w-4" />}
           </button>
+
+          {requiresVerification && (
+            <div className="md:col-span-2 flex flex-wrap items-center gap-2 text-sm">
+              <button type="button" onClick={onResendOtp} className="btn-secondary">
+                Resend OTP
+              </button>
+              <button type="button" onClick={resetVerification} className="btn-ghost">
+                Edit details
+              </button>
+            </div>
+          )}
         </form>
 
         <p className="mt-4 text-sm text-[var(--text-muted)]">

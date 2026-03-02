@@ -26,7 +26,7 @@ const NotificationPanel = () => {
     <div className="relative">
       <button type="button" onClick={() => setOpen((prev) => !prev)} className="btn-ghost relative">
         <BellIcon className="h-4 w-4" />
-        Alerts
+        <span className="hidden lg:inline">Alerts</span>
         {!!unreadCount && (
           <span className="absolute -right-1.5 -top-1.5 rounded-full bg-[var(--danger)] px-1.5 py-0.5 text-[10px] font-bold text-white">
             {unreadCount}

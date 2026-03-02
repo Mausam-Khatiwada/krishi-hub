@@ -21,7 +21,15 @@ router.post(
   orderController.createOrder,
 );
 
-router.post('/payments/confirm', restrictTo('buyer'), orderController.markPaymentBySession);
+router.post(
+  '/payments/confirm',
+  restrictTo('buyer'),
+  [
+    body('sessionId').isString().notEmpty().withMessage('Stripe sessionId is required'),
+    validateRequest,
+  ],
+  orderController.markPaymentBySession,
+);
 router.get('/my', restrictTo('buyer'), orderController.getMyOrders);
 router.get('/farmer', restrictTo('farmer'), orderController.getFarmerOrders);
 router.get('/analytics/farmer', restrictTo('farmer'), orderController.getFarmerAnalytics);

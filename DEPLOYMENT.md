@@ -11,6 +11,8 @@ This project is deployment-ready as separate frontend and backend services.
 4. Start command: `npm start`
 5. Add environment variables from `server/.env.example`.
 6. Ensure `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL`, and `STRIPE_SECRET_KEY` are set.
+7. Set `NODE_ENV=production`.
+8. Configure SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) because registration uses email OTP.
 
 ### Railway
 1. Create a new project from repository.
@@ -29,6 +31,7 @@ This project is deployment-ready as separate frontend and backend services.
    - `VITE_API_URL=https://<your-backend-domain>/api/v1`
    - `VITE_SOCKET_URL=https://<your-backend-domain>`
    - `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...`
+   - `VITE_GOOGLE_CLIENT_ID=<your-client-id>.apps.googleusercontent.com`
 
 ## 3. CORS + Client URL
 
@@ -53,10 +56,14 @@ If using preview + production domains, comma-separate:
 
 ## 6. Post-Deploy Checklist
 
+- Run `npm run preflight` from `server` before deploy.
 - Verify `/health` endpoint.
 - Verify login/register, product listing, checkout, and chat.
+- Verify Google login and 2FA flow.
 - Confirm static uploads route works (`/uploads/*`).
 - Confirm admin account seeded or created manually.
+- Confirm Stripe redirect returns to frontend and `POST /orders/payments/confirm` marks order paid.
+- Confirm buyer product alert notifications (price drop / restock) and farmer insights endpoints are loading.
 
 ## Optional Hardening for Production
 

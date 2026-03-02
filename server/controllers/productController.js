@@ -8,6 +8,7 @@ const AppError = require('../utils/AppError');
 const paginate = require('../utils/paginate');
 const { recommendProducts } = require('../utils/recommendation');
 const { suggestPrice } = require('../utils/priceSuggestion');
+const { createNotification } = require('../utils/notify');
 
 const buildFileUrl = (req, file) => {
   const relative = file.path.replace(/\\/g, '/');
@@ -16,6 +17,89 @@ const buildFileUrl = (req, file) => {
     publicId: file.filename,
     mimeType: file.mimetype,
   };
+};
+
+const notifyTrackedProductSubscribers = async ({ productBefore, productAfter, io }) => {
+  const previousPrice = Number(productBefore?.pricePerUnit || 0);
+  const currentPrice = Number(productAfter?.pricePerUnit || 0);
+  const previousStock = Number(productBefore?.quantityAvailable || 0);
+  const currentStock = Number(productAfter?.quantityAvailable || 0);
+
+  const priceDropped = currentPrice < previousPrice;
+  const cameBackInStock = previousStock <= 0 && currentStock > 0;
+
+  if (!priceDropped && !cameBackInStock) return;
+
+  const users = await User.find({
+    'productAlerts.product': productAfter._id,
+  }).select('_id productAlerts');
+
+  await Promise.all(
+    users.map(async (user) => {
+      const alert = (user.productAlerts || []).find(
+        (item) => String(item.product) === String(productAfter._id),
+      );
+
+      if (!alert) return;
+
+      let changed = false;
+      const notifications = [];
+
+      if (priceDropped && alert.notifyOnPriceDrop !== false) {
+        const hasTarget = typeof alert.targetPrice === 'number';
+        const targetReached = hasTarget ? currentPrice <= Number(alert.targetPrice) : true;
+
+        if (targetReached) {
+          notifications.push(
+            createNotification({
+              user: user._id,
+              type: 'system',
+              title: 'Price dropped on tracked product',
+              message: `${productAfter.name} is now NPR ${currentPrice.toFixed(2)}${
+                hasTarget ? ` (target NPR ${Number(alert.targetPrice).toFixed(2)})` : ''
+              }`,
+              metadata: {
+                productId: productAfter._id,
+                previousPrice,
+                currentPrice,
+              },
+              io,
+            }),
+          );
+          alert.lastNotifiedPrice = currentPrice;
+          changed = true;
+        }
+      }
+
+      if (cameBackInStock && alert.notifyOnRestock !== false) {
+        notifications.push(
+          createNotification({
+            user: user._id,
+            type: 'system',
+            title: 'Tracked product is back in stock',
+            message: `${productAfter.name} is available again with ${currentStock} units in stock.`,
+            metadata: {
+              productId: productAfter._id,
+              previousStock,
+              currentStock,
+            },
+            io,
+          }),
+        );
+        alert.lastNotifiedStock = currentStock;
+        changed = true;
+      }
+
+      if (!notifications.length) return;
+
+      await Promise.all(notifications);
+
+      if (changed) {
+        alert.updatedAt = new Date();
+        await user.save({ validateBeforeSave: false });
+      }
+    }),
+  );
 };
 
 const createProduct = catchAsync(async (req, res) => {
@@ -165,9 +249,21 @@ const updateProduct = catchAsync(async (req, res, next) => {
     req.body.videos = req.files.videos.map((file) => buildFileUrl(req, file));
   }
 
+  const previousState = {
+    pricePerUnit: product.pricePerUnit,
+    quantityAvailable: product.quantityAvailable,
+    name: product.name,
+  };
+
   const updated = await Product.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
+  });
+
+  await notifyTrackedProductSubscribers({
+    productBefore: previousState,
+    productAfter: updated,
+    io: req.io,
   });
 
   if (req.io) {
