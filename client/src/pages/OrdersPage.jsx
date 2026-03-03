@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import api from '../api/client';
 import { addToCart } from '../features/cart/cartSlice';
 import {
+  confirmPayment,
   fetchAdminOrders,
   fetchFarmerOrders,
   fetchMyOrders,
@@ -27,15 +29,56 @@ const OrdersPage = () => {
   usePageTitle('Orders');
 
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAppSelector((state) => state.auth);
   const { myOrders, farmerOrders, adminOrders } = useAppSelector((state) => state.orders);
   const [reviewDraft, setReviewDraft] = useState({});
+  const [returnDraft, setReturnDraft] = useState({});
 
   useEffect(() => {
     if (user?.role === 'buyer') dispatch(fetchMyOrders());
     if (user?.role === 'farmer') dispatch(fetchFarmerOrders());
     if (user?.role === 'admin') dispatch(fetchAdminOrders());
   }, [dispatch, user?.role]);
+
+  useEffect(() => {
+    const paymentState = String(searchParams.get('payment') || '').trim().toLowerCase();
+    if (!paymentState) return;
+
+    const providerRaw = String(searchParams.get('provider') || '').trim().toLowerCase();
+    const provider = providerRaw || (searchParams.get('session_id') ? 'stripe' : 'payment');
+    const providerLabel =
+      provider === 'esewa'
+        ? 'eSewa'
+        : provider === 'khalti'
+          ? 'Khalti'
+          : provider === 'stripe'
+            ? 'Stripe'
+            : 'Payment';
+    const sessionId = searchParams.get('session_id');
+
+    const processState = async () => {
+      if (paymentState === 'success' && sessionId) {
+        const action = await dispatch(confirmPayment(sessionId));
+        if (confirmPayment.fulfilled.match(action)) {
+          toast.success(`${providerLabel} payment verified successfully`);
+        } else {
+          toast.error(action.payload || 'Payment verification failed');
+        }
+      } else if (paymentState === 'success') {
+        toast.success(`${providerLabel} payment verified successfully`);
+      } else if (paymentState === 'cancelled') {
+        toast.error(`${providerLabel} payment was cancelled`);
+      } else {
+        toast.error(`${providerLabel} payment verification failed`);
+      }
+
+      navigate('/orders', { replace: true });
+    };
+
+    processState();
+  }, [dispatch, navigate, searchParams]);
 
   const refreshRoleOrders = () => {
     if (user?.role === 'buyer') dispatch(fetchMyOrders());
@@ -82,6 +125,41 @@ const OrdersPage = () => {
       setReviewDraft((prev) => ({ ...prev, [key]: { rating: '', comment: '' } }));
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to submit review');
+    }
+  };
+
+  const canBuyerRequestReturn = (order) => {
+    if (!['paid', 'shipped', 'delivered'].includes(order.status)) return false;
+    const status = order.returnRequest?.status || 'none';
+    return ['none', 'rejected', 'closed'].includes(status);
+  };
+
+  const requestReturn = async (orderId) => {
+    const reason = String(returnDraft[orderId]?.reason || '').trim();
+    const description = String(returnDraft[orderId]?.description || '').trim();
+
+    if (!reason) {
+      toast.error('Return reason is required');
+      return;
+    }
+
+    try {
+      await api.post(`/orders/${orderId}/returns/request`, { reason, description });
+      toast.success('Return request submitted');
+      setReturnDraft((prev) => ({ ...prev, [orderId]: { reason: '', description: '' } }));
+      refreshRoleOrders();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to request return');
+    }
+  };
+
+  const processReturn = async (orderId, action) => {
+    try {
+      await api.patch(`/orders/${orderId}/returns/process`, { action });
+      toast.success(`Return ${action} action completed`);
+      refreshRoleOrders();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to process return');
     }
   };
 
@@ -146,6 +224,18 @@ const OrdersPage = () => {
                 {order.tracking.partnerName || '-'} | {order.tracking.trackingId || '-'} | {order.tracking.status || '-'}
               </p>
               <p className="text-[var(--text-muted)]">Last location: {order.tracking.lastLocation || '-'}</p>
+            </div>
+          )}
+
+          {order.returnRequest?.status && order.returnRequest.status !== 'none' && (
+            <div className="mt-3 rounded-xl border border-[var(--line)] p-3 text-sm">
+              <p className="font-semibold">Reverse Logistics</p>
+              <p className="text-[var(--text-muted)]">
+                Status: {order.returnRequest.status} | Reason: {order.returnRequest.reason || '-'}
+              </p>
+              <p className="text-[var(--text-muted)]">
+                Refund: {order.returnRequest.refundAmount ? formatCurrency(order.returnRequest.refundAmount) : '-'}
+              </p>
             </div>
           )}
 
@@ -215,6 +305,36 @@ const OrdersPage = () => {
               </button>
             )}
 
+            {user?.role === 'buyer' && canBuyerRequestReturn(order) && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--line)] px-2.5 py-2">
+                <input
+                  className="input w-44"
+                  placeholder="Return reason"
+                  value={returnDraft[order._id]?.reason || ''}
+                  onChange={(event) =>
+                    setReturnDraft((prev) => ({
+                      ...prev,
+                      [order._id]: { ...prev[order._id], reason: event.target.value },
+                    }))
+                  }
+                />
+                <input
+                  className="input w-56"
+                  placeholder="Optional details"
+                  value={returnDraft[order._id]?.description || ''}
+                  onChange={(event) =>
+                    setReturnDraft((prev) => ({
+                      ...prev,
+                      [order._id]: { ...prev[order._id], description: event.target.value },
+                    }))
+                  }
+                />
+                <button type="button" className="btn-danger" onClick={() => requestReturn(order._id)}>
+                  Request return
+                </button>
+              </div>
+            )}
+
             {user?.role === 'farmer' && order.status === 'placed' && (
               <>
                 <button
@@ -263,6 +383,31 @@ const OrdersPage = () => {
                   <CheckCircleIcon className="h-4 w-4" />
                   Mark delivered
                 </button>
+                {order.returnRequest?.status === 'requested' && (
+                  <>
+                    <button type="button" className="btn-secondary" onClick={() => processReturn(order._id, 'approve')}>
+                      Approve return
+                    </button>
+                    <button type="button" className="btn-danger" onClick={() => processReturn(order._id, 'reject')}>
+                      Reject return
+                    </button>
+                  </>
+                )}
+                {order.returnRequest?.status === 'approved' && (
+                  <button type="button" className="btn-secondary" onClick={() => processReturn(order._id, 'schedule-pickup')}>
+                    Schedule pickup
+                  </button>
+                )}
+                {order.returnRequest?.status === 'pickup_scheduled' && (
+                  <button type="button" className="btn-secondary" onClick={() => processReturn(order._id, 'mark-received')}>
+                    Mark return received
+                  </button>
+                )}
+                {order.returnRequest?.status === 'received' && (
+                  <button type="button" className="btn-primary" onClick={() => processReturn(order._id, 'issue-refund')}>
+                    Issue refund
+                  </button>
+                )}
               </>
             )}
           </div>

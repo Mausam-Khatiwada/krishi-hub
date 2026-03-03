@@ -151,6 +151,11 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
       "paymentMethod": "stripe"
     }
     ```
+  - `paymentMethod` supports: `stripe`, `cod`, `esewa`, `khalti`, `mobile_banking`
+  - Notes:
+    - `stripe`: returns hosted Stripe `checkoutUrl`.
+    - `esewa`: returns internal `checkoutUrl` that auto-posts to eSewa with signed payload.
+    - `khalti`: returns Khalti `payment_url` as `checkoutUrl`.
 - `POST /orders/payments/confirm` (buyer)
   - Body:
     ```json
@@ -171,6 +176,18 @@ Auth is JWT-based with `Authorization: Bearer <token>` and cookie support.
   - Body: `{ "decision": "accepted" | "rejected" }`
 - `PATCH /orders/:id/status` (admin/farmer)
 - `PATCH /orders/:id/tracking` (admin)
+
+### Public Payment Callback Endpoints
+
+- `GET /orders/payments/esewa/checkout?token=...`
+  - Auto-submits signed eSewa payment form.
+- `GET /orders/payments/esewa/callback/success`
+  - Decodes callback payload, verifies signature, verifies transaction status with eSewa API, marks order paid, then redirects to client.
+- `GET /orders/payments/esewa/callback/failure`
+  - Marks payment failed/cancelled and redirects to client checkout page.
+- `GET /orders/payments/khalti/callback`
+- `POST /orders/payments/khalti/callback`
+  - Verifies `pidx` through Khalti lookup API, marks order paid on successful verification, and redirects to client.
 
 ## Reviews
 

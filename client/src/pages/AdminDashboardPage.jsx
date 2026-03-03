@@ -47,6 +47,8 @@ const AdminDashboardPage = () => {
 
   const [orderFilter, setOrderFilter] = useState({ status: '', paymentStatus: '' });
   const [adminOrders, setAdminOrders] = useState([]);
+  const [returnsQueue, setReturnsQueue] = useState([]);
+  const [returnsFilter, setReturnsFilter] = useState('all');
   const [tracking, setTracking] = useState({});
 
   const [coupons, setCoupons] = useState([]);
@@ -66,6 +68,14 @@ const AdminDashboardPage = () => {
   const [intelligence, setIntelligence] = useState(null);
   const [pricingInsights, setPricingInsights] = useState({ summary: null, recommendations: [] });
   const [selectedPricingIds, setSelectedPricingIds] = useState([]);
+  const [revenueInsights, setRevenueInsights] = useState({
+    summary: null,
+    paymentMix: [],
+    topProducts: [],
+    couponHealth: { lowPerformanceCoupons: [], expiringSoonCoupons: [] },
+    recommendations: [],
+  });
+  const [revenueAutomationMode, setRevenueAutomationMode] = useState('simulate');
   const [inventoryInsights, setInventoryInsights] = useState({ summary: null, criticalItems: [] });
   const [marketingInsights, setMarketingInsights] = useState({
     segments: null,
@@ -105,6 +115,11 @@ const AdminDashboardPage = () => {
     setAdminOrders(data.orders || []);
   };
 
+  const loadReturnsQueue = async (status = returnsFilter) => {
+    const { data } = await api.get('/orders/admin/returns', { params: { status } });
+    setReturnsQueue(data.orders || []);
+  };
+
   const loadCoupons = async () => {
     const { data } = await api.get('/coupons');
     setCoupons(data.coupons || []);
@@ -134,9 +149,10 @@ const AdminDashboardPage = () => {
   };
 
   const loadAdminIntelligence = async () => {
-    const [overviewRes, pricingRes, inventoryRes, marketingRes] = await Promise.all([
+    const [overviewRes, pricingRes, revenueRes, inventoryRes, marketingRes] = await Promise.all([
       api.get('/admin/intelligence/overview'),
       api.get('/admin/intelligence/dynamic-pricing', { params: { limit: 80 } }),
+      api.get('/admin/intelligence/revenue'),
       api.get('/admin/intelligence/inventory'),
       api.get('/admin/intelligence/marketing'),
     ]);
@@ -145,6 +161,13 @@ const AdminDashboardPage = () => {
     setPricingInsights({
       summary: pricingRes.data.summary || null,
       recommendations: pricingRes.data.recommendations || [],
+    });
+    setRevenueInsights({
+      summary: revenueRes.data.summary || null,
+      paymentMix: revenueRes.data.paymentMix || [],
+      topProducts: revenueRes.data.topProducts || [],
+      couponHealth: revenueRes.data.couponHealth || { lowPerformanceCoupons: [], expiringSoonCoupons: [] },
+      recommendations: revenueRes.data.recommendations || [],
     });
     setInventoryInsights({
       summary: inventoryRes.data.summary || null,
@@ -165,6 +188,7 @@ const AdminDashboardPage = () => {
         await Promise.all([
           loadAdminProducts(),
           loadAdminOrders(),
+          loadReturnsQueue(),
           loadCoupons(),
           loadForum(),
           loadAnnouncementHistory(),
@@ -185,10 +209,9 @@ const AdminDashboardPage = () => {
   }, [productFilter.status]);
 
   useEffect(() => {
-    loadAdminOrders().catch((error) =>
-      toast.error(error.response?.data?.message || 'Failed to refresh orders'),
-    );
-  }, [orderFilter.status, orderFilter.paymentStatus]);
+    Promise.all([loadAdminOrders(), loadReturnsQueue()])
+      .catch((error) => toast.error(error.response?.data?.message || 'Failed to refresh orders'));
+  }, [orderFilter.status, orderFilter.paymentStatus, returnsFilter]);
 
   useEffect(() => {
     const knownUserIds = new Set(users.map((user) => user._id));
@@ -336,6 +359,24 @@ const AdminDashboardPage = () => {
     }
   };
 
+  const runRevenueOptimizationAction = async () => {
+    try {
+      const { data } = await api.post('/admin/intelligence/revenue/optimize', {
+        mode: revenueAutomationMode,
+      });
+      const actionCount = data.actions?.length || 0;
+      toast.success(
+        revenueAutomationMode === 'simulate'
+          ? `Revenue engine simulation completed with ${data.insights?.recommendations?.length || 0} recommendation(s)`
+          : `Revenue optimization completed. ${actionCount} action(s) applied`,
+      );
+      await loadAdminIntelligence();
+      loadAuditLogs({ page: 1 });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Revenue optimization failed');
+    }
+  };
+
   const runInventoryAutomationAction = async () => {
     try {
       const { data } = await api.post('/admin/intelligence/inventory/automate', {
@@ -382,6 +423,17 @@ const AdminDashboardPage = () => {
       await loadAdminIntelligence();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to launch automated campaign');
+    }
+  };
+
+  const processReturnAction = async (orderId, action) => {
+    try {
+      await api.patch(`/orders/${orderId}/returns/process`, { action });
+      toast.success(`Return ${action} action applied`);
+      await Promise.all([loadReturnsQueue(), loadAdminOrders()]);
+      loadAuditLogs({ page: 1 });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to process return action');
     }
   };
 
@@ -573,6 +625,83 @@ const AdminDashboardPage = () => {
             <div className="metric-card p-3">
               <p className="text-xs text-[var(--text-muted)]">Avg Review (30d)</p>
               <p className="text-2xl font-bold">{intelligence?.kpis?.avgReviewRating30 || 0}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
+            <div className="app-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="panel-title">Revenue Optimization Engine</p>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    className="select max-w-[250px]"
+                    value={revenueAutomationMode}
+                    onChange={(event) => setRevenueAutomationMode(event.target.value)}
+                  >
+                    <option value="simulate">Simulate recommendations</option>
+                    <option value="apply-discount-guardrails">Apply discount guardrails</option>
+                    <option value="launch-recovery-coupon">Launch recovery coupon campaign</option>
+                  </select>
+                  <button type="button" className="btn-primary" onClick={runRevenueOptimizationAction}>
+                    Run engine
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Net revenue (30d)</p>
+                  <p className="font-bold">{formatCurrency(revenueInsights.summary?.netRevenue30 || 0)}</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Discount leakage</p>
+                  <p className="font-bold">{revenueInsights.summary?.discountLeakagePercent || 0}%</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Stale checkouts</p>
+                  <p className="font-bold">{revenueInsights.summary?.staleCheckoutCount || 0}</p>
+                </div>
+                <div className="rounded-lg border border-[var(--line)] p-2">
+                  <p className="text-xs text-[var(--text-muted)]">Returns in progress</p>
+                  <p className="font-bold">{revenueInsights.summary?.returnsInProgress || 0}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {(revenueInsights.recommendations || []).slice(0, 4).map((item, index) => (
+                  <article key={`${item.type}-${index}`} className="rounded-lg border border-[var(--line)] p-2 text-xs">
+                    <p className="font-semibold">{item.title}</p>
+                    <p className="text-[var(--text-muted)]">{item.reason}</p>
+                    <p className="mt-1 text-[var(--text-muted)]">Action: {item.suggestedAction}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="app-card p-4">
+              <p className="panel-title">Monetization Mix</p>
+              <div className="mt-2 space-y-2">
+                {(revenueInsights.paymentMix || []).map((item) => (
+                  <article key={item.method} className="rounded-lg border border-[var(--line)] p-2 text-xs">
+                    <p className="font-semibold uppercase">{item.method || 'unknown'}</p>
+                    <p className="text-[var(--text-muted)]">
+                      {item.orders} orders | {formatCurrency(item.revenue || 0)}
+                    </p>
+                  </article>
+                ))}
+                {!revenueInsights.paymentMix?.length && (
+                  <p className="text-xs text-[var(--text-muted)]">No payment mix data available.</p>
+                )}
+              </div>
+              <div className="mt-3">
+                <p className="text-sm font-semibold">Top products by revenue</p>
+                <div className="mt-2 space-y-2">
+                  {(revenueInsights.topProducts || []).slice(0, 5).map((item) => (
+                    <div key={item.productName} className="flex items-center justify-between rounded-lg border border-[var(--line)] p-2 text-xs">
+                      <p className="truncate">{item.productName}</p>
+                      <p className="font-semibold">{formatCurrency(item.revenue || 0)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -983,9 +1112,191 @@ const AdminDashboardPage = () => {
       )}
 
       {tab === 'orders' && (
-        <section className="app-card p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><p className="panel-title">Order & Delivery Controls</p><div className="flex gap-2"><select className="select w-36" value={orderFilter.status} onChange={(e) => setOrderFilter((p) => ({ ...p, status: e.target.value }))}><option value="">All status</option><option value="placed">Placed</option><option value="accepted">Accepted</option><option value="paid">Paid</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select><select className="select w-36" value={orderFilter.paymentStatus} onChange={(e) => setOrderFilter((p) => ({ ...p, paymentStatus: e.target.value }))}><option value="">All payment</option><option value="unpaid">Unpaid</option><option value="paid">Paid</option><option value="failed">Failed</option></select></div></div>
-          {adminOrders.map((o) => (<article key={o._id} className="rounded-xl border border-[var(--line)] p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">#{o._id.slice(-8)}</p><p className="text-[var(--text-muted)]">{o.status}  |  {o.paymentStatus}  |  {formatCurrency(o.totalAmount)}</p></div><p className="text-xs text-[var(--text-muted)] mt-1">Buyer: {o.buyer?.name || '-'}  |  {formatDate(o.createdAt)}</p><div className="mt-2 flex flex-wrap gap-1"><button type="button" className="btn-secondary" onClick={() => setOrderStatus(o._id, 'paid')}>Paid</button><button type="button" className="btn-secondary" onClick={() => setOrderStatus(o._id, 'shipped')}>Shipped</button><button type="button" className="btn-primary" onClick={() => setOrderStatus(o._id, 'delivered')}>Delivered</button><button type="button" className="btn-danger" onClick={() => setOrderStatus(o._id, 'cancelled')}>Cancel</button></div><div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4"><input className="input" placeholder="Partner" value={tracking[o._id]?.partnerName || ''} onChange={(e) => setTracking((p) => ({ ...p, [o._id]: { ...p[o._id], partnerName: e.target.value } }))} /><input className="input" placeholder="Tracking ID" value={tracking[o._id]?.trackingId || ''} onChange={(e) => setTracking((p) => ({ ...p, [o._id]: { ...p[o._id], trackingId: e.target.value } }))} /><input className="input" placeholder="Status" value={tracking[o._id]?.status || ''} onChange={(e) => setTracking((p) => ({ ...p, [o._id]: { ...p[o._id], status: e.target.value } }))} /><input className="input" placeholder="Last location" value={tracking[o._id]?.lastLocation || ''} onChange={(e) => setTracking((p) => ({ ...p, [o._id]: { ...p[o._id], lastLocation: e.target.value } }))} /></div><button type="button" className="btn-secondary mt-2" onClick={() => setOrderTracking(o._id)}>Update tracking</button></article>))}
+        <section className="space-y-4">
+          <div className="app-card p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="panel-title">Order & Delivery Controls</p>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className="select w-36"
+                  value={orderFilter.status}
+                  onChange={(e) => setOrderFilter((p) => ({ ...p, status: e.target.value }))}
+                >
+                  <option value="">All status</option>
+                  <option value="placed">Placed</option>
+                  <option value="accepted">Accepted</option>
+                  <option value="paid">Paid</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="delivered">Delivered</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+                <select
+                  className="select w-36"
+                  value={orderFilter.paymentStatus}
+                  onChange={(e) => setOrderFilter((p) => ({ ...p, paymentStatus: e.target.value }))}
+                >
+                  <option value="">All payment</option>
+                  <option value="unpaid">Unpaid</option>
+                  <option value="paid">Paid</option>
+                  <option value="failed">Failed</option>
+                  <option value="refunded">Refunded</option>
+                </select>
+              </div>
+            </div>
+
+            {adminOrders.map((order) => (
+              <article key={order._id} className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold">#{order._id.slice(-8)}</p>
+                  <p className="text-[var(--text-muted)]">
+                    {order.status} | {order.paymentStatus} | {formatCurrency(order.totalAmount)}
+                  </p>
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Buyer: {order.buyer?.name || '-'} | {formatDate(order.createdAt)}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <button type="button" className="btn-secondary" onClick={() => setOrderStatus(order._id, 'paid')}>
+                    Paid
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setOrderStatus(order._id, 'shipped')}
+                  >
+                    Shipped
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setOrderStatus(order._id, 'delivered')}
+                  >
+                    Delivered
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    onClick={() => setOrderStatus(order._id, 'cancelled')}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                  <input
+                    className="input"
+                    placeholder="Partner"
+                    value={tracking[order._id]?.partnerName || ''}
+                    onChange={(e) =>
+                      setTracking((p) => ({ ...p, [order._id]: { ...p[order._id], partnerName: e.target.value } }))
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="Tracking ID"
+                    value={tracking[order._id]?.trackingId || ''}
+                    onChange={(e) =>
+                      setTracking((p) => ({ ...p, [order._id]: { ...p[order._id], trackingId: e.target.value } }))
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="Status"
+                    value={tracking[order._id]?.status || ''}
+                    onChange={(e) =>
+                      setTracking((p) => ({ ...p, [order._id]: { ...p[order._id], status: e.target.value } }))
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="Last location"
+                    value={tracking[order._id]?.lastLocation || ''}
+                    onChange={(e) =>
+                      setTracking((p) => ({ ...p, [order._id]: { ...p[order._id], lastLocation: e.target.value } }))
+                    }
+                  />
+                </div>
+                <button type="button" className="btn-secondary mt-2" onClick={() => setOrderTracking(order._id)}>
+                  Update tracking
+                </button>
+              </article>
+            ))}
+          </div>
+
+          <div className="app-card p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="panel-title">Reverse Logistics Automation</p>
+              <select
+                className="select w-52"
+                value={returnsFilter}
+                onChange={(event) => setReturnsFilter(event.target.value)}
+              >
+                <option value="all">All return states</option>
+                <option value="requested">Requested</option>
+                <option value="approved">Approved</option>
+                <option value="pickup_scheduled">Pickup Scheduled</option>
+                <option value="received">Received</option>
+                <option value="refunded">Refunded</option>
+                <option value="rejected">Rejected</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            {returnsQueue.map((order) => (
+              <article key={`${order._id}-${order.returnRequest?.status}`} className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold">Order #{order._id.slice(-8)}</p>
+                  <span className="badge capitalize">{order.returnRequest?.status || 'none'}</span>
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Buyer: {order.buyer?.name || '-'} | Reason: {order.returnRequest?.reason || '-'}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Requested: {formatDate(order.returnRequest?.requestedAt)}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {order.returnRequest?.status === 'requested' && (
+                    <>
+                      <button type="button" className="btn-primary" onClick={() => processReturnAction(order._id, 'approve')}>
+                        Approve
+                      </button>
+                      <button type="button" className="btn-danger" onClick={() => processReturnAction(order._id, 'reject')}>
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {order.returnRequest?.status === 'approved' && (
+                    <>
+                      <button type="button" className="btn-secondary" onClick={() => processReturnAction(order._id, 'schedule-pickup')}>
+                        Schedule pickup
+                      </button>
+                      <button type="button" className="btn-danger" onClick={() => processReturnAction(order._id, 'reject')}>
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {order.returnRequest?.status === 'pickup_scheduled' && (
+                    <button type="button" className="btn-secondary" onClick={() => processReturnAction(order._id, 'mark-received')}>
+                      Mark received
+                    </button>
+                  )}
+                  {order.returnRequest?.status === 'received' && (
+                    <button type="button" className="btn-primary" onClick={() => processReturnAction(order._id, 'issue-refund')}>
+                      Issue refund
+                    </button>
+                  )}
+                  {['refunded', 'rejected'].includes(order.returnRequest?.status) && (
+                    <button type="button" className="btn-secondary" onClick={() => processReturnAction(order._id, 'close')}>
+                      Close case
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+
+            {!returnsQueue.length && (
+              <p className="text-sm text-[var(--text-muted)]">No return requests in this state.</p>
+            )}
+          </div>
         </section>
       )}
 

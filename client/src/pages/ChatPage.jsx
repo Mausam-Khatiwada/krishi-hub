@@ -378,12 +378,12 @@ const ChatPage = () => {
 
         <div className="mt-3">
           <label className="relative block">
-            <SearchIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
+            <SearchIcon className="input-leading-icon" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search chats or contacts"
-              className="input pl-9"
+              className="input input-with-icon"
             />
           </label>
         </div>

@@ -14,6 +14,8 @@ router.patch('/subscribe/:farmerId', restrictTo('buyer'), userController.subscri
 router.get('/purchase-history', restrictTo('buyer'), userController.getPurchaseHistory);
 router.get('/alerts', restrictTo('buyer'), userController.getMyProductAlerts);
 router.patch('/alerts/:productId', restrictTo('buyer'), userController.upsertProductAlert);
+router.get('/engagement/spin-wheel', restrictTo('buyer'), userController.getSpinWheelStatus);
+router.post('/engagement/spin-wheel', restrictTo('buyer'), userController.spinDiscountWheel);
 router.get('/insights/buyer-buy-again', restrictTo('buyer'), userController.getBuyerBuyAgainInsights);
 router.get('/insights/farmer-demand', restrictTo('farmer'), userController.getFarmerDemandInsights);
 router.get('/insights/farmer-customers', restrictTo('farmer'), userController.getFarmerCustomerInsights);

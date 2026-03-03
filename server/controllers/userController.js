@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const Coupon = require('../models/Coupon');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -28,6 +29,19 @@ const PRODUCT_ALERT_POPULATE_OPTIONS = {
 
 const ORDER_COMPLETED_STATES = ['paid', 'shipped', 'delivered'];
 const MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
+const SPIN_WHEEL_COOLDOWN_HOURS = 24;
+const MAX_SPIN_HISTORY = 20;
+const SPIN_WHEEL_REWARDS = [
+  { key: 'no-reward', label: 'No Reward, Try Again', discountType: 'none', value: 0, minOrderAmount: 0, expiresDays: 0, weight: 52 },
+  { key: 'off-5', label: '5% OFF', discountType: 'percent', value: 5, minOrderAmount: 500, expiresDays: 4, weight: 22 },
+  { key: 'off-8', label: '8% OFF', discountType: 'percent', value: 8, minOrderAmount: 800, expiresDays: 4, weight: 12 },
+  { key: 'off-12', label: '12% OFF', discountType: 'percent', value: 12, minOrderAmount: 1200, expiresDays: 3, weight: 7 },
+  { key: 'npr-150', label: 'NPR 150 OFF', discountType: 'fixed', value: 150, minOrderAmount: 2000, expiresDays: 3, weight: 4.5 },
+  { key: 'npr-250', label: 'NPR 250 OFF', discountType: 'fixed', value: 250, minOrderAmount: 2800, expiresDays: 2, weight: 1.8 },
+  { key: 'off-20', label: '20% OFF', discountType: 'percent', value: 20, minOrderAmount: 3000, expiresDays: 2, weight: 0.55 },
+  { key: 'off-25', label: '25% OFF', discountType: 'percent', value: 25, minOrderAmount: 5000, expiresDays: 1, weight: 0.12 },
+  { key: 'off-30', label: '30% OFF', discountType: 'percent', value: 30, minOrderAmount: 7000, expiresDays: 1, weight: 0.03 },
+];
 
 const parseBooleanFlag = (value, fallback) => {
   if (typeof value === 'boolean') return value;
@@ -44,6 +58,39 @@ const normalizeTargetPrice = (value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return NaN;
   return Number(parsed.toFixed(2));
+};
+
+const createSpinCouponCode = () =>
+  `SPIN${Date.now().toString(36).slice(-6).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+
+const pickSpinWheelReward = () => {
+  const totalWeight = SPIN_WHEEL_REWARDS.reduce((sum, reward) => sum + Number(reward.weight || 0), 0);
+  let cursor = Math.random() * totalWeight;
+
+  for (const reward of SPIN_WHEEL_REWARDS) {
+    cursor -= Number(reward.weight || 0);
+    if (cursor <= 0) {
+      return reward;
+    }
+  }
+
+  return SPIN_WHEEL_REWARDS[0];
+};
+
+const extractSpinStatus = (user) => {
+  const nextEligibleAt = user?.spinWheel?.nextEligibleAt ? new Date(user.spinWheel.nextEligibleAt) : null;
+  const remainingMs = nextEligibleAt ? nextEligibleAt.getTime() - Date.now() : 0;
+
+  return {
+    totalSpins: Number(user?.spinWheel?.totalSpins || 0),
+    streakDays: Number(user?.spinWheel?.streakDays || 0),
+    lastSpinAt: user?.spinWheel?.lastSpinAt || null,
+    nextEligibleAt,
+    canSpinNow: !nextEligibleAt || remainingMs <= 0,
+    cooldownSecondsRemaining: remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0,
+    lastRewardLabel: user?.spinWheel?.lastRewardLabel || null,
+    recentHistory: (user?.spinWheel?.history || []).slice(0, 8),
+  };
 };
 
 const formatProductAlerts = (user) =>
@@ -248,6 +295,109 @@ const upsertProductAlert = catchAsync(async (req, res, next) => {
     status: 'success',
     isTracking: true,
     alerts: formatProductAlerts(hydrated),
+  });
+});
+
+const getSpinWheelStatus = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.user._id).select('spinWheel');
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    spin: extractSpinStatus(user),
+  });
+});
+
+const spinDiscountWheel = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  const spinState = extractSpinStatus(user);
+  if (!spinState.canSpinNow) {
+    return next(
+      new AppError(
+        `Spin is on cooldown. Try again in ${Math.ceil(spinState.cooldownSecondsRemaining / 60)} minute(s).`,
+        429,
+      ),
+    );
+  }
+
+  const reward = pickSpinWheelReward();
+  const now = new Date();
+  const nextEligibleAt = new Date(now.getTime() + SPIN_WHEEL_COOLDOWN_HOURS * 60 * 60 * 1000);
+
+  user.spinWheel = user.spinWheel || {};
+  const previousSpinAt = user.spinWheel.lastSpinAt ? new Date(user.spinWheel.lastSpinAt) : null;
+  const isDailyStreak =
+    previousSpinAt && now.getTime() - previousSpinAt.getTime() <= 48 * 60 * 60 * 1000;
+  const streakDays = isDailyStreak ? Number(user.spinWheel.streakDays || 0) + 1 : 1;
+
+  let coupon = null;
+  let couponPayload = null;
+
+  if (reward.discountType !== 'none' && Number(reward.value) > 0) {
+    let couponCode = createSpinCouponCode();
+    let existing = await Coupon.findOne({ code: couponCode });
+    let retries = 0;
+
+    while (existing && retries < 5) {
+      couponCode = createSpinCouponCode();
+      existing = await Coupon.findOne({ code: couponCode });
+      retries += 1;
+    }
+
+    coupon = await Coupon.create({
+      code: couponCode,
+      discountType: reward.discountType,
+      value: Number(reward.value),
+      minOrderAmount: Number(reward.minOrderAmount || 0),
+      usageLimit: 1,
+      expiresAt: new Date(now.getTime() + Number(reward.expiresDays || 3) * 24 * 60 * 60 * 1000),
+      isActive: true,
+    });
+
+    couponPayload = {
+      code: coupon.code,
+      discountType: coupon.discountType,
+      value: coupon.value,
+      minOrderAmount: coupon.minOrderAmount,
+      expiresAt: coupon.expiresAt,
+    };
+  }
+
+  user.spinWheel.lastSpinAt = now;
+  user.spinWheel.nextEligibleAt = nextEligibleAt;
+  user.spinWheel.totalSpins = Number(user.spinWheel.totalSpins || 0) + 1;
+  user.spinWheel.streakDays = streakDays;
+  user.spinWheel.lastRewardLabel = reward.label;
+  user.spinWheel.history = [
+    {
+      spunAt: now,
+      rewardLabel: reward.label,
+      discountType: reward.discountType,
+      value: Number(reward.value || 0),
+      couponCode: coupon?.code,
+      expiresAt: coupon?.expiresAt || null,
+    },
+    ...(user.spinWheel.history || []),
+  ].slice(0, MAX_SPIN_HISTORY);
+
+  await user.save();
+
+  res.status(200).json({
+    status: 'success',
+    result: {
+      rewardKey: reward.key,
+      rewardLabel: reward.label,
+      discountType: reward.discountType,
+      value: Number(reward.value || 0),
+      coupon: couponPayload,
+    },
+    spin: extractSpinStatus(user),
   });
 });
 
@@ -609,6 +759,8 @@ module.exports = {
   getPurchaseHistory,
   getMyProductAlerts,
   upsertProductAlert,
+  getSpinWheelStatus,
+  spinDiscountWheel,
   getBuyerBuyAgainInsights,
   getFarmerDemandInsights,
   getFarmerCustomerInsights,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
@@ -11,6 +11,7 @@ import { fetchRecommendations, fetchWishlist } from '../features/products/produc
 import ProductCard from '../components/ProductCard';
 import {
   BellIcon,
+  BoltIcon,
   CandleChartIcon,
   CartIcon,
   CheckCircleIcon,
@@ -20,11 +21,27 @@ import {
   ShieldCheckIcon,
   SparkleIcon,
   StoreIcon,
+  TicketIcon,
   TrendUpIcon,
   UserGroupIcon,
 } from '../components/icons/AppIcons';
 import { formatCurrency, formatDate } from '../utils/format';
 import usePageTitle from '../hooks/usePageTitle';
+
+const WHEEL_SEGMENTS = [
+  { key: 'no-reward', label: 'No Reward', color: '#455a4f' },
+  { key: 'off-5', label: '5% OFF', color: '#31b665' },
+  { key: 'off-8', label: '8% OFF', color: '#2a8a5a' },
+  { key: 'off-12', label: '12% OFF', color: '#3aa06f' },
+  { key: 'npr-150', label: 'NPR 150', color: '#f3a640' },
+  { key: 'npr-250', label: 'NPR 250', color: '#d7842b' },
+  { key: 'off-20', label: '20% OFF', color: '#ff7d4d' },
+  { key: 'off-25', label: '25% OFF', color: '#f94a3d' },
+  { key: 'off-30', label: '30% OFF', color: '#cf2626' },
+];
+
+const SEGMENT_SWEEP = 360 / WHEEL_SEGMENTS.length;
+const normalizeRewardToken = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const BuyerDashboardPage = () => {
   usePageTitle('Buyer Dashboard');
@@ -39,6 +56,12 @@ const BuyerDashboardPage = () => {
   const [priceAlerts, setPriceAlerts] = useState([]);
   const [buyerIntelLoading, setBuyerIntelLoading] = useState(false);
   const [alertsDraft, setAlertsDraft] = useState({});
+  const [spinState, setSpinState] = useState(null);
+  const [spinResult, setSpinResult] = useState(null);
+  const [spinningWheel, setSpinningWheel] = useState(false);
+  const [wheelAnimating, setWheelAnimating] = useState(false);
+  const [wheelRotation, setWheelRotation] = useState(0);
+  const spinFinishTimeoutRef = useRef(null);
 
   const subscribedFarmers = user?.subscribedFarmers || [];
   const unreadNotifications = notifications.filter((item) => !item.isRead).length;
@@ -52,6 +75,14 @@ const BuyerDashboardPage = () => {
     () => (wishlist || []).filter((item) => item?._id && !alertByProductId.has(item._id)),
     [alertByProductId, wishlist],
   );
+  const wheelGradient = useMemo(() => {
+    const stops = WHEEL_SEGMENTS.map((segment, index) => {
+      const start = (index * SEGMENT_SWEEP).toFixed(2);
+      const end = ((index + 1) * SEGMENT_SWEEP).toFixed(2);
+      return `${segment.color} ${start}deg ${end}deg`;
+    });
+    return `conic-gradient(from -90deg, ${stops.join(', ')})`;
+  }, []);
 
   useEffect(() => {
     dispatch(fetchMe());
@@ -66,22 +97,26 @@ const BuyerDashboardPage = () => {
       setBuyerIntelLoading(true);
 
       try {
-        const [buyAgainResponse, alertsResponse] = await Promise.all([
+        const [buyAgainResponse, alertsResponse, spinResponse] = await Promise.all([
           api.get('/users/insights/buyer-buy-again'),
           api.get('/users/alerts'),
+          api.get('/users/engagement/spin-wheel'),
         ]);
 
         if (!alive) return;
 
         const nextBuyAgain = buyAgainResponse.data?.insights?.buyAgain || [];
         const nextAlerts = alertsResponse.data?.alerts || [];
+        const nextSpin = spinResponse.data?.spin || null;
 
         setBuyAgainInsights(nextBuyAgain);
         setPriceAlerts(nextAlerts);
+        setSpinState(nextSpin);
       } catch (_error) {
         if (alive) {
           setBuyAgainInsights([]);
           setPriceAlerts([]);
+          setSpinState(null);
         }
       } finally {
         if (alive) {
@@ -96,6 +131,15 @@ const BuyerDashboardPage = () => {
       alive = false;
     };
   }, [dispatch]);
+
+  useEffect(
+    () => () => {
+      if (spinFinishTimeoutRef.current) {
+        window.clearTimeout(spinFinishTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     setAlertsDraft((prev) => {
@@ -195,6 +239,56 @@ const BuyerDashboardPage = () => {
     }
   };
 
+  const spinDiscountWheel = async () => {
+    if (!spinState?.canSpinNow || spinningWheel || wheelAnimating) return;
+    setSpinningWheel(true);
+
+    try {
+      const { data } = await api.post('/users/engagement/spin-wheel');
+      const result = data.result || null;
+      const rewardKey = result?.rewardKey;
+      const rewardLabelToken = normalizeRewardToken(result?.rewardLabel || '');
+      const targetIndex =
+        WHEEL_SEGMENTS.findIndex((segment) => segment.key === rewardKey) >= 0
+          ? WHEEL_SEGMENTS.findIndex((segment) => segment.key === rewardKey)
+          : Math.max(
+              0,
+              WHEEL_SEGMENTS.findIndex((segment) =>
+                rewardLabelToken.includes(normalizeRewardToken(segment.label)),
+              ),
+            );
+
+      const centerAngle = targetIndex * SEGMENT_SWEEP + SEGMENT_SWEEP / 2;
+      const segmentJitter = (Math.random() - 0.5) * SEGMENT_SWEEP * 0.32;
+      const alignmentAngle = (360 - centerAngle + segmentJitter + 360) % 360;
+      const fullTurns = 360 * (6 + Math.floor(Math.random() * 3));
+
+      setWheelAnimating(true);
+      setSpinState(data.spin || null);
+      setSpinResult(null);
+      setWheelRotation((previous) => previous + fullTurns + alignmentAngle);
+
+      if (spinFinishTimeoutRef.current) {
+        window.clearTimeout(spinFinishTimeoutRef.current);
+      }
+
+      spinFinishTimeoutRef.current = window.setTimeout(() => {
+        setWheelAnimating(false);
+        setSpinningWheel(false);
+        setSpinResult(result);
+        if (result?.coupon?.code) {
+          toast.success(`Reward unlocked: ${result.coupon.code}`);
+        } else {
+          toast.success(result?.rewardLabel || 'Spin complete');
+        }
+      }, 4600);
+    } catch (error) {
+      setWheelAnimating(false);
+      setSpinningWheel(false);
+      toast.error(error.response?.data?.message || 'Spin failed');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="hero-panel bg-gradient-to-r from-[#103d25] via-[#1d6f3e] to-[#78b852] p-6 text-white md:p-7">
@@ -203,15 +297,15 @@ const BuyerDashboardPage = () => {
           Operate like a pro buyer with AI reorder intelligence, smart price tracking, and direct farm subscriptions.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link to="/" className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+          <Link to="/" className="hero-power-chip">
             <StoreIcon className="h-4 w-4" />
             Explore Marketplace
           </Link>
-          <Link to="/chat" className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+          <Link to="/chat" className="hero-power-chip">
             <MessageCircleIcon className="h-4 w-4" />
             Open Chat
           </Link>
-          <button type="button" onClick={reorderLatest} className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+          <button type="button" onClick={reorderLatest} className="hero-power-chip">
             <CartIcon className="h-4 w-4" />
             Reorder Latest
           </button>
@@ -254,6 +348,121 @@ const BuyerDashboardPage = () => {
           </p>
           <p className="mt-1 text-2xl font-bold">{unreadNotifications}</p>
         </article>
+      </section>
+
+      <section className="app-card p-5">
+        <div className="grid gap-5 xl:grid-cols-[20rem_1fr]">
+          <div className="spin-wheel-stage mx-auto">
+            <div className="spin-wheel-pointer" />
+            <div
+              className={`spin-wheel-disc ${wheelAnimating ? 'is-spinning' : ''}`}
+              style={{
+                backgroundImage: wheelGradient,
+                transform: `rotate(${wheelRotation}deg)`,
+              }}
+            />
+            <div className="spin-wheel-hub">
+              <SparkleIcon className={`h-5 w-5 ${wheelAnimating ? 'animate-spin' : ''}`} />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="inline-flex items-center gap-2 text-xl font-bold">
+                  <BoltIcon className="h-5 w-5 text-[var(--accent)]" />
+                  Spin-the-Wheel Rewards
+                </h2>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  One spin every 24 hours. Higher discounts are intentionally much rarer.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={spinDiscountWheel}
+                disabled={!spinState?.canSpinNow || spinningWheel || wheelAnimating}
+              >
+                <SparkleIcon className={`h-4 w-4 ${(spinningWheel || wheelAnimating) ? 'animate-spin' : ''}`} />
+                {wheelAnimating
+                  ? 'Spinning...'
+                  : spinningWheel
+                    ? 'Preparing...'
+                    : spinState?.canSpinNow
+                      ? 'Spin now'
+                      : 'On cooldown'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <article className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <p className="text-xs text-[var(--text-muted)]">Total spins</p>
+                <p className="text-xl font-bold">{spinState?.totalSpins || 0}</p>
+              </article>
+              <article className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <p className="text-xs text-[var(--text-muted)]">Streak</p>
+                <p className="text-xl font-bold">{spinState?.streakDays || 0} day(s)</p>
+              </article>
+              <article className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <p className="text-xs text-[var(--text-muted)]">Last reward</p>
+                <p className="font-semibold">{spinState?.lastRewardLabel || 'N/A'}</p>
+              </article>
+              <article className="rounded-xl border border-[var(--line)] p-3 text-sm">
+                <p className="text-xs text-[var(--text-muted)]">Next eligible</p>
+                <p className="font-semibold">
+                  {spinState?.canSpinNow
+                    ? 'Available now'
+                    : spinState?.nextEligibleAt
+                      ? formatDate(spinState.nextEligibleAt)
+                      : '-'}
+                </p>
+              </article>
+            </div>
+
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/72 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Segment Map
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {WHEEL_SEGMENTS.map((segment) => (
+                  <span
+                    key={segment.key}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2 py-1 text-[11px] font-semibold"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: segment.color }}
+                    />
+                    {segment.label}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+                20%+ rewards are ultra-rare and become less likely as discount value increases.
+              </p>
+            </div>
+
+            {spinResult && (
+              <article className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/70 p-3 text-sm">
+                <p className="inline-flex items-center gap-1.5 font-semibold">
+                  <TicketIcon className="h-4 w-4 text-[var(--accent)]" />
+                  Latest result: {spinResult.rewardLabel}
+                </p>
+                {spinResult.coupon?.code ? (
+                  <p className="mt-1 text-[var(--text-muted)]">
+                    Coupon {spinResult.coupon.code} |{' '}
+                    {spinResult.coupon.discountType === 'percent'
+                      ? `${spinResult.coupon.value}% off`
+                      : formatCurrency(spinResult.coupon.value)}{' '}
+                    | Expires {formatDate(spinResult.coupon.expiresAt)}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[var(--text-muted)]">No coupon this round. Try again after cooldown.</p>
+                )}
+              </article>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="app-card p-5">

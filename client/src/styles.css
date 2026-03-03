@@ -283,6 +283,77 @@ a {
   flex-shrink: 0;
 }
 
+.spin-wheel-stage {
+  position: relative;
+  width: min(20rem, 84vw);
+  aspect-ratio: 1;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background:
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 56%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface) 92%, #ffffff 8%), color-mix(in srgb, var(--surface-2) 90%, transparent));
+  box-shadow: var(--shadow-sm);
+  padding: 0.86rem;
+  overflow: hidden;
+}
+
+.spin-wheel-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 22% 16%, rgba(255, 255, 255, 0.16), transparent 36%);
+}
+
+.spin-wheel-disc {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  border: 8px solid color-mix(in srgb, var(--surface) 74%, var(--line));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent),
+    0 22px 44px color-mix(in srgb, var(--accent) 24%, transparent);
+  transition: transform 4.6s cubic-bezier(0.17, 0.9, 0.22, 0.99);
+}
+
+.spin-wheel-disc.is-spinning {
+  filter: saturate(1.08) brightness(1.02);
+}
+
+.spin-wheel-pointer {
+  position: absolute;
+  top: 0.58rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-bottom: 24px solid color-mix(in srgb, var(--accent-2) 86%, #7f4b10 14%);
+  filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.2));
+  z-index: 4;
+}
+
+.spin-wheel-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 5rem;
+  height: 5rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, #000000 28%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #000000 14%), color-mix(in srgb, #10a95a 82%, #000000 18%));
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 28%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  z-index: 5;
+}
+
 .input,
 .select,
 .textarea {
@@ -344,7 +415,8 @@ a {
   width: 1rem;
   height: 1rem;
   transform: translateY(-50%);
-  color: #5d6d5a;
+  color: color-mix(in srgb, var(--text-muted) 92%, #3f5246 8%);
+  z-index: 1;
 }
 
 .table-shell {

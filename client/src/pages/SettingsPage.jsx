@@ -682,6 +682,7 @@ const SettingsPage = () => {
                 <option value="wallet">Wallet</option>
                 <option value="esewa">eSewa</option>
                 <option value="khalti">Khalti</option>
+                <option value="mobile_banking">Mobile Banking</option>
               </select>
               <input className="input" placeholder="Weekly budget (NPR)" value={roleProfileForm.weeklyBudget || ''} onChange={(event) => setRoleProfileForm((previous) => ({ ...previous, weeklyBudget: event.target.value }))} />
               <textarea className="textarea md:col-span-2" rows="3" placeholder="Delivery instructions" value={roleProfileForm.deliveryInstructions || ''} onChange={(event) => setRoleProfileForm((previous) => ({ ...previous, deliveryInstructions: event.target.value }))} />

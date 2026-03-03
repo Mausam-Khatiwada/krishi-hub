@@ -365,6 +365,162 @@ const buildMarketingInsights = async () => {
   };
 };
 
+const buildRevenueOptimizationInsights = async () => {
+  const [paidOrders30, paymentMixRows, stalePlacedOrders, returnsInProgress, couponRows, productRevenueRows] =
+    await Promise.all([
+      Order.find({
+        paymentStatus: 'paid',
+        createdAt: { $gte: toRecentDate(DAYS.MONTH) },
+      }).select('totalAmount discountAmount paymentMethod createdAt'),
+      Order.aggregate([
+        { $match: { paymentStatus: 'paid', createdAt: { $gte: toRecentDate(DAYS.MONTH) } } },
+        {
+          $group: {
+            _id: '$paymentMethod',
+            orders: { $sum: 1 },
+            revenue: { $sum: '$totalAmount' },
+          },
+        },
+        { $sort: { revenue: -1 } },
+      ]),
+      Order.countDocuments({
+        status: 'placed',
+        createdAt: { $lte: toRecentDate(2) },
+      }),
+      Order.countDocuments({
+        'returnRequest.status': { $in: ['requested', 'approved', 'pickup_scheduled', 'received'] },
+      }),
+      Coupon.find().select('code discountType value isActive usageLimit usedBy createdAt expiresAt').limit(200),
+      Order.aggregate([
+        {
+          $match: {
+            paymentStatus: 'paid',
+            createdAt: { $gte: toRecentDate(DAYS.MONTH) },
+          },
+        },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.productName',
+            revenue: { $sum: '$items.subtotal' },
+            units: { $sum: '$items.quantity' },
+          },
+        },
+        { $sort: { revenue: -1 } },
+        { $limit: 8 },
+      ]),
+    ]);
+
+  const grossRevenue30 = paidOrders30.reduce(
+    (sum, order) => sum + Number(order.totalAmount || 0) + Number(order.discountAmount || 0),
+    0,
+  );
+  const netRevenue30 = paidOrders30.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+  const discountSpend30 = paidOrders30.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
+  const totalOrders30 = paidOrders30.length;
+  const avgOrderValue30 = totalOrders30 ? netRevenue30 / totalOrders30 : 0;
+  const discountLeakagePercent = grossRevenue30 ? (discountSpend30 / grossRevenue30) * 100 : 0;
+
+  const paymentMix = paymentMixRows.map((row) => ({
+    method: row._id || 'unknown',
+    orders: Number(row.orders || 0),
+    revenue: roundTo(row.revenue || 0),
+  }));
+
+  const activeCoupons = couponRows.filter((coupon) => coupon.isActive);
+  const lowPerformanceCoupons = activeCoupons.filter(
+    (coupon) =>
+      (coupon.usedBy?.length || 0) <= 2 &&
+      new Date(coupon.createdAt).getTime() < toRecentDate(45).getTime(),
+  );
+  const expiringCoupons = activeCoupons.filter(
+    (coupon) =>
+      coupon.expiresAt &&
+      new Date(coupon.expiresAt).getTime() <= toRecentDate(-3).getTime(),
+  );
+
+  const recommendations = [];
+  if (discountLeakagePercent >= 13) {
+    recommendations.push({
+      type: 'discount-guardrail',
+      title: 'Discount leakage is high',
+      reason: `Discount spend is ${roundTo(discountLeakagePercent, 1)}% of gross revenue in last 30 days.`,
+      suggestedAction: 'Disable stale coupons and lower blanket discount campaigns.',
+      priority: 'high',
+    });
+  }
+  if (stalePlacedOrders >= 8) {
+    recommendations.push({
+      type: 'checkout-recovery',
+      title: 'Checkout drop-off optimization needed',
+      reason: `${stalePlacedOrders} orders stayed in placed state for more than 48 hours.`,
+      suggestedAction: 'Trigger cart recovery offer and promote fast payment rails.',
+      priority: 'high',
+    });
+  }
+  if (returnsInProgress >= 5) {
+    recommendations.push({
+      type: 'returns-control',
+      title: 'Return pipeline pressure detected',
+      reason: `${returnsInProgress} returns are currently in progress.`,
+      suggestedAction: 'Increase quality checks and route to reliable delivery partners.',
+      priority: 'medium',
+    });
+  }
+  if (avgOrderValue30 < Number(process.env.REVENUE_AOV_TARGET_NPR || 1600)) {
+    recommendations.push({
+      type: 'basket-expansion',
+      title: 'Average order value below target',
+      reason: `Current AOV is ${roundTo(avgOrderValue30)} NPR.`,
+      suggestedAction: 'Promote bundled produce packs and threshold-based free delivery.',
+      priority: 'medium',
+    });
+  }
+  if (!recommendations.length) {
+    recommendations.push({
+      type: 'maintain',
+      title: 'Revenue engine healthy',
+      reason: 'No high-risk monetization anomaly detected.',
+      suggestedAction: 'Continue monitoring and run weekly optimization checks.',
+      priority: 'low',
+    });
+  }
+
+  return {
+    summary: {
+      grossRevenue30: roundTo(grossRevenue30),
+      netRevenue30: roundTo(netRevenue30),
+      discountSpend30: roundTo(discountSpend30),
+      discountLeakagePercent: roundTo(discountLeakagePercent, 1),
+      totalOrders30,
+      avgOrderValue30: roundTo(avgOrderValue30),
+      staleCheckoutCount: stalePlacedOrders,
+      returnsInProgress,
+      activeCoupons: activeCoupons.length,
+    },
+    paymentMix,
+    topProducts: productRevenueRows.map((row) => ({
+      productName: row._id,
+      revenue: roundTo(row.revenue),
+      units: Number(row.units || 0),
+    })),
+    couponHealth: {
+      lowPerformanceCoupons: lowPerformanceCoupons.map((coupon) => ({
+        id: String(coupon._id),
+        code: coupon.code,
+        usedCount: coupon.usedBy?.length || 0,
+        createdAt: coupon.createdAt,
+      })),
+      expiringSoonCoupons: expiringCoupons.map((coupon) => ({
+        id: String(coupon._id),
+        code: coupon.code,
+        expiresAt: coupon.expiresAt,
+      })),
+    },
+    recommendations,
+  };
+};
+
 const getDashboardStats = catchAsync(async (_req, res) => {
   const [
     totalUsers,
@@ -1140,6 +1296,15 @@ const getIntelligenceOverview = catchAsync(async (_req, res) => {
   });
 });
 
+const getRevenueOptimizationInsights = catchAsync(async (_req, res) => {
+  const insights = await buildRevenueOptimizationInsights();
+
+  res.status(200).json({
+    status: 'success',
+    ...insights,
+  });
+});
+
 const getDynamicPricingInsights = catchAsync(async (req, res) => {
   const { limit = 40 } = req.query;
   const recommendations = await buildPricingRecommendations({ limit: Number(limit) || 40 });
@@ -1162,6 +1327,100 @@ const getDynamicPricingInsights = catchAsync(async (req, res) => {
     status: 'success',
     summary,
     recommendations,
+  });
+});
+
+const runRevenueOptimizationAutomation = catchAsync(async (req, res, next) => {
+  const mode = String(req.body?.mode || 'simulate').trim().toLowerCase();
+  const allowedModes = ['simulate', 'apply-discount-guardrails', 'launch-recovery-coupon'];
+
+  if (!allowedModes.includes(mode)) {
+    return next(new AppError(`mode must be one of: ${allowedModes.join(', ')}`, 400));
+  }
+
+  const insights = await buildRevenueOptimizationInsights();
+  const actions = [];
+
+  if (mode === 'apply-discount-guardrails') {
+    const deactivateIds = [
+      ...new Set([
+        ...(insights.couponHealth.lowPerformanceCoupons || []).map((item) => item.id),
+        ...(insights.couponHealth.expiringSoonCoupons || []).map((item) => item.id),
+      ]),
+    ].filter((id) => mongoose.isValidObjectId(id));
+
+    if (deactivateIds.length) {
+      const result = await Coupon.updateMany(
+        { _id: { $in: deactivateIds } },
+        {
+          $set: {
+            isActive: false,
+          },
+        },
+      );
+
+      actions.push({
+        type: 'coupons.deactivate',
+        requested: deactivateIds.length,
+        modified: Number(result.modifiedCount || 0),
+      });
+    }
+  }
+
+  if (mode === 'launch-recovery-coupon') {
+    const code = `RECOV${Date.now().toString().slice(-5)}`;
+    const coupon = await Coupon.create({
+      code,
+      discountType: 'percent',
+      value: 8,
+      minOrderAmount: 900,
+      usageLimit: 5000,
+      expiresAt: dayjs().add(7, 'day').toDate(),
+      isActive: true,
+    });
+
+    const dormantBuyerAudience = await resolveCampaignAudience('dormant-buyers');
+    const recipients = dormantBuyerAudience.slice(0, 2000);
+
+    await Promise.all(
+      recipients.map((user) =>
+        createNotification({
+          user: user._id,
+          type: 'announcement',
+          title: 'Complete your next checkout with a savings boost',
+          message: `Use coupon ${coupon.code} to unlock 8% off on your next order this week.`,
+          metadata: {
+            campaignType: 'revenue-recovery',
+            couponCode: coupon.code,
+          },
+          io: req.io,
+        }),
+      ),
+    );
+
+    actions.push({
+      type: 'campaign.recovery_coupon',
+      couponCode: coupon.code,
+      recipients: recipients.length,
+    });
+  }
+
+  recordAudit(req, {
+    action: 'revenue.optimization_run',
+    targetType: 'system',
+    targetLabel: `Revenue optimization (${mode})`,
+    details: {
+      mode,
+      actions,
+      recommendationCount: insights.recommendations.length,
+    },
+  });
+
+  res.status(200).json({
+    status: 'success',
+    mode,
+    actions,
+    insights,
   });
 });
 
@@ -1503,8 +1762,10 @@ const launchAutomatedCampaign = catchAsync(async (req, res, next) => {
 module.exports = {
   getDashboardStats,
   getIntelligenceOverview,
+  getRevenueOptimizationInsights,
   getDynamicPricingInsights,
   applyDynamicPricingUpdates,
+  runRevenueOptimizationAutomation,
   getInventoryAutomationInsights,
   runInventoryAutomation,
   getMarketingAutomationInsights,

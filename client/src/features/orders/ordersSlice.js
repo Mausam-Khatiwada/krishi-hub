@@ -134,6 +134,12 @@ const ordersSlice = createSlice({
       })
       .addCase(fetchFarmerAnalytics.fulfilled, (state, action) => {
         state.farmerAnalytics = action.payload;
+      })
+      .addCase(confirmPayment.fulfilled, (state, action) => {
+        state.currentOrder = action.payload;
+        state.myOrders = state.myOrders.map((order) =>
+          order._id === action.payload._id ? action.payload : order,
+        );
       });
   },
 });

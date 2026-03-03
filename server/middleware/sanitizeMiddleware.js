@@ -1,4 +1,14 @@
 const KEY_SANITIZE_REGEX = /^\$|\./;
+const RAW_QUERY_KEYS = new Set([
+  'data',
+  'signature',
+  'token',
+  'pidx',
+  'transaction_id',
+  'purchase_order_id',
+  'session_id',
+  'gateway',
+]);
 
 const HTML_ESCAPE_MAP = {
   '&': '&amp;',
@@ -41,13 +51,15 @@ const sanitizeNoSqlInPlace = (target) => {
   });
 };
 
-const sanitizeXssInPlace = (target) => {
+const sanitizeXssInPlace = (target, options = {}) => {
+  const { skipKeys = new Set() } = options;
+
   if (Array.isArray(target)) {
     target.forEach((item, index) => {
       if (typeof item === 'string') {
         target[index] = escapeHtml(item);
       } else {
-        sanitizeXssInPlace(item);
+        sanitizeXssInPlace(item, options);
       }
     });
     return;
@@ -58,6 +70,10 @@ const sanitizeXssInPlace = (target) => {
   }
 
   Object.keys(target).forEach((key) => {
+    if (skipKeys.has(key)) {
+      return;
+    }
+
     const value = target[key];
 
     if (typeof value === 'string') {
@@ -65,7 +81,7 @@ const sanitizeXssInPlace = (target) => {
       return;
     }
 
-    sanitizeXssInPlace(value);
+    sanitizeXssInPlace(value, options);
   });
 };
 
@@ -73,11 +89,10 @@ const sanitizeRequest = (req, _res, next) => {
   ['body', 'params', 'query'].forEach((key) => {
     if (!req[key]) return;
     sanitizeNoSqlInPlace(req[key]);
-    sanitizeXssInPlace(req[key]);
+    sanitizeXssInPlace(req[key], key === 'query' ? { skipKeys: RAW_QUERY_KEYS } : {});
   });
 
   next();
 };
 
 module.exports = sanitizeRequest;
-

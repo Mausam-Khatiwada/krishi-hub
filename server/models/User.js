@@ -60,6 +60,37 @@ const productAlertSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const spinWheelRewardSchema = new mongoose.Schema(
+  {
+    spunAt: {
+      type: Date,
+      default: Date.now,
+    },
+    rewardLabel: {
+      type: String,
+      trim: true,
+      maxlength: 60,
+    },
+    discountType: {
+      type: String,
+      enum: ['percent', 'fixed', 'none'],
+      default: 'none',
+    },
+    value: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    couponCode: {
+      type: String,
+      trim: true,
+      maxlength: 40,
+    },
+    expiresAt: Date,
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -162,7 +193,7 @@ const userSchema = new mongoose.Schema(
     buyerProfile: {
       preferredPaymentMethod: {
         type: String,
-        enum: ['stripe', 'cod', 'wallet', 'esewa', 'khalti'],
+        enum: ['stripe', 'cod', 'wallet', 'esewa', 'khalti', 'mobile_banking'],
         default: 'stripe',
       },
       deliveryInstructions: { type: String, trim: true, maxlength: 250 },
@@ -176,6 +207,14 @@ const userSchema = new mongoose.Schema(
       },
       criticalAlertsOnly: { type: Boolean, default: false },
       reportDigestEmail: { type: String, trim: true, maxlength: 120 },
+    },
+    spinWheel: {
+      lastSpinAt: Date,
+      nextEligibleAt: Date,
+      totalSpins: { type: Number, default: 0, min: 0 },
+      streakDays: { type: Number, default: 0, min: 0 },
+      lastRewardLabel: { type: String, trim: true, maxlength: 60 },
+      history: [spinWheelRewardSchema],
     },
     lastLoginAt: Date,
     accountActivity: {

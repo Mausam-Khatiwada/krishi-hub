@@ -8,7 +8,7 @@ Krishihub is a role-based MERN e-commerce platform that connects farmers directl
 - Backend: Node.js + Express.js + Socket.io
 - Database: MongoDB + Mongoose
 - Auth: JWT (header + httpOnly cookie)
-- Payments: Stripe Checkout (test mode)
+- Payments: Stripe Checkout + Nepal methods (eSewa, Khalti, Mobile Banking, COD)
 - Validation: express-validator + zod/react-hook-form
 - File Upload: Local upload storage (Cloudinary-ready config included)
 
@@ -62,6 +62,9 @@ krishi-hub/
 - Product detail view with Google Maps embed
 - Cart and checkout flow
 - Stripe checkout session integration (test mode)
+- Nepal payment methods in checkout: eSewa, Khalti, Mobile Banking
+- eSewa callback verification (signature + status lookup)
+- Khalti callback verification (pidx lookup)
 - Order history and invoice download
 - Wishlist toggle
 - Direct Farm Connect (subscribe to farmers)
@@ -140,6 +143,12 @@ Frontend runs on `http://localhost:5173`.
   - `COOKIE_MAX_AGE_MS` (default: `604800000`)
   - `SMTP_SECURE` (auto-detected by port if unset)
   - `SMTP_TLS_REJECT_UNAUTHORIZED` (default: `true`)
+  - `SERVER_URL` (public backend base URL for payment callbacks)
+  - `ESEWA_BASE_URL` (sandbox default: `https://rc-epay.esewa.com.np`)
+  - `ESEWA_PRODUCT_CODE`, `ESEWA_SECRET_KEY`
+  - `KHALTI_BASE_URL` (sandbox default: `https://dev.khalti.com`)
+  - `KHALTI_SECRET_KEY`
+  - `KHALTI_WEBSITE_URL` (frontend public URL)
 
 Security note:
 - Production startup now validates critical environment variables and rejects weak/placeholder `JWT_SECRET` values.
