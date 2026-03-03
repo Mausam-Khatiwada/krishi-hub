@@ -13,14 +13,30 @@ import { restoreTheme } from './features/ui/uiSlice';
 store.dispatch(restoreCart());
 store.dispatch(restoreTheme());
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
-      if (import.meta.env.DEV) {
-        console.error('Service worker registration failed:', error);
+if ('serviceWorker' in navigator) {
+  if (import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch((error) => {
+        if (import.meta.env.DEV) {
+          console.error('Service worker registration failed:', error);
+        }
+      });
+    });
+  } else {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+        .catch(() => undefined);
+
+      if ('caches' in window) {
+        caches
+          .keys()
+          .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+          .catch(() => undefined);
       }
     });
-  });
+  }
 }
 
 ReactDOM.createRoot(document.getElementById('app')).render(

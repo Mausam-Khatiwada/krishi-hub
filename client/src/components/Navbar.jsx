@@ -1,4 +1,4 @@
-﻿import { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
@@ -77,7 +77,7 @@ const Navbar = () => {
             <span className="command-hint">Ctrl+K</span>
           </button>
 
-          <nav className="nav-scroll md:ml-1">
+          <nav className="nav-scroll md:ml-1 desktop-nav">
             <NavLink to="/" className={linkClass}>
               <HomeIcon className="h-4 w-4" />
               {t('home')}
@@ -117,7 +117,7 @@ const Navbar = () => {
             {user && <NotificationPanel />}
 
             {user ? (
-              <>
+              <div className="hidden items-center gap-1.5 lg:flex">
                 <NavLink to={dashboardPath} className={linkClass}>
                   <DashboardIcon className="h-4 w-4" />
                   <span className="hidden xl:inline">{t('dashboard')}</span>
@@ -134,9 +134,9 @@ const Navbar = () => {
                   <LogoutIcon className="h-4 w-4" />
                   <span className="hidden xl:inline">{t('logout')}</span>
                 </button>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="hidden items-center gap-1.5 lg:flex">
                 <NavLink to="/login" className={linkClass}>
                   <BoltIcon className="h-4 w-4" />
                   {t('login')}
@@ -144,13 +144,13 @@ const Navbar = () => {
                 <NavLink to="/register" className={linkClass}>
                   {t('register')}
                 </NavLink>
-              </>
+              </div>
             )}
           </div>
         </div>
 
         {user && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)]/80 px-3 py-2 text-xs text-[var(--text-muted)]">
+          <div className="mt-3 hidden flex-wrap items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)]/80 px-3 py-2 text-xs text-[var(--text-muted)] md:flex">
             <span className="font-semibold text-[var(--text)]">{user.name}</span>
             <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-soft)] px-2 py-0.5 uppercase tracking-[0.08em] text-[10px] font-bold text-[var(--text-muted)]">
               <ShieldCheckIcon className="h-3.5 w-3.5" />
@@ -169,4 +169,5 @@ const Navbar = () => {
 };
 
 export default Navbar;
+
 

@@ -9,6 +9,7 @@ import { fetchNotifications } from '../features/notifications/notificationSlice'
 import { fetchMyOrders } from '../features/orders/ordersSlice';
 import { fetchRecommendations, fetchWishlist } from '../features/products/productsSlice';
 import ProductCard from '../components/ProductCard';
+import RoleSectionNav from '../components/RoleSectionNav';
 import {
   BellIcon,
   BoltIcon,
@@ -41,6 +42,9 @@ const WHEEL_SEGMENTS = [
 ];
 
 const SEGMENT_SWEEP = 360 / WHEEL_SEGMENTS.length;
+const SPIN_ANIMATION_MS = 5600;
+const SPIN_CELEBRATION_MS = 1250;
+const MIN_SPIN_TURNS = 7;
 const normalizeRewardToken = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const BuyerDashboardPage = () => {
@@ -60,11 +64,65 @@ const BuyerDashboardPage = () => {
   const [spinResult, setSpinResult] = useState(null);
   const [spinningWheel, setSpinningWheel] = useState(false);
   const [wheelAnimating, setWheelAnimating] = useState(false);
+  const [wheelCelebrating, setWheelCelebrating] = useState(false);
   const [wheelRotation, setWheelRotation] = useState(0);
   const spinFinishTimeoutRef = useRef(null);
+  const spinCelebrateTimeoutRef = useRef(null);
 
   const subscribedFarmers = user?.subscribedFarmers || [];
   const unreadNotifications = notifications.filter((item) => !item.isRead).length;
+
+  const [activeSection, setActiveSection] = useState('overview');
+
+  const dashboardSections = useMemo(
+    () => [
+      {
+        key: 'overview',
+        label: 'Overview',
+        description: 'KPIs and quick health',
+        icon: CheckCircleIcon,
+        badge: myOrders.length,
+      },
+      {
+        key: 'rewards',
+        label: 'Rewards',
+        description: 'Spin wheel and perks',
+        icon: SparkleIcon,
+        badge: spinState?.canSpinNow ? 'Live' : spinState?.nextEligibleAt ? 'Soon' : '-',
+      },
+      {
+        key: 'intelligence',
+        label: 'Intelligence',
+        description: 'AI recommendation stack',
+        icon: CandleChartIcon,
+        badge: buyAgainInsights.length,
+      },
+      {
+        key: 'network',
+        label: 'Network',
+        description: 'Wishlist and farmers',
+        icon: UserGroupIcon,
+        badge: subscribedFarmers.length,
+      },
+      {
+        key: 'orders',
+        label: 'Orders',
+        description: 'Purchase timeline',
+        icon: StoreIcon,
+        badge: myOrders.length,
+      },
+    ],
+    [buyAgainInsights.length, myOrders.length, spinState?.canSpinNow, spinState?.nextEligibleAt, subscribedFarmers.length],
+  );
+
+  const onSectionChange = (sectionKey) => {
+    setActiveSection(sectionKey);
+    const target = document.getElementById(`buyer-${sectionKey}`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
 
   const alertByProductId = useMemo(
     () => new Map(priceAlerts.map((alert) => [alert.product?._id, alert])),
@@ -136,6 +194,9 @@ const BuyerDashboardPage = () => {
     () => () => {
       if (spinFinishTimeoutRef.current) {
         window.clearTimeout(spinFinishTimeoutRef.current);
+      }
+      if (spinCelebrateTimeoutRef.current) {
+        window.clearTimeout(spinCelebrateTimeoutRef.current);
       }
     },
     [],
@@ -242,6 +303,7 @@ const BuyerDashboardPage = () => {
   const spinDiscountWheel = async () => {
     if (!spinState?.canSpinNow || spinningWheel || wheelAnimating) return;
     setSpinningWheel(true);
+    setWheelCelebrating(false);
 
     try {
       const { data } = await api.post('/users/engagement/spin-wheel');
@@ -259,14 +321,17 @@ const BuyerDashboardPage = () => {
             );
 
       const centerAngle = targetIndex * SEGMENT_SWEEP + SEGMENT_SWEEP / 2;
-      const segmentJitter = (Math.random() - 0.5) * SEGMENT_SWEEP * 0.32;
-      const alignmentAngle = (360 - centerAngle + segmentJitter + 360) % 360;
-      const fullTurns = 360 * (6 + Math.floor(Math.random() * 3));
+      const desiredRotation = ((360 - centerAngle) % 360 + 360) % 360;
+      const fullTurns = 360 * (MIN_SPIN_TURNS + Math.floor(Math.random() * 3));
 
       setWheelAnimating(true);
       setSpinState(data.spin || null);
       setSpinResult(null);
-      setWheelRotation((previous) => previous + fullTurns + alignmentAngle);
+      setWheelRotation((previous) => {
+        const normalizedCurrent = ((previous % 360) + 360) % 360;
+        const delta = (desiredRotation - normalizedCurrent + 360) % 360;
+        return previous + fullTurns + delta;
+      });
 
       if (spinFinishTimeoutRef.current) {
         window.clearTimeout(spinFinishTimeoutRef.current);
@@ -276,15 +341,26 @@ const BuyerDashboardPage = () => {
         setWheelAnimating(false);
         setSpinningWheel(false);
         setSpinResult(result);
+        setWheelCelebrating(true);
+
+        if (spinCelebrateTimeoutRef.current) {
+          window.clearTimeout(spinCelebrateTimeoutRef.current);
+        }
+
+        spinCelebrateTimeoutRef.current = window.setTimeout(() => {
+          setWheelCelebrating(false);
+        }, SPIN_CELEBRATION_MS);
+
         if (result?.coupon?.code) {
           toast.success(`Reward unlocked: ${result.coupon.code}`);
         } else {
           toast.success(result?.rewardLabel || 'Spin complete');
         }
-      }, 4600);
+      }, SPIN_ANIMATION_MS);
     } catch (error) {
       setWheelAnimating(false);
       setSpinningWheel(false);
+      setWheelCelebrating(false);
       toast.error(error.response?.data?.message || 'Spin failed');
     }
   };
@@ -312,7 +388,9 @@ const BuyerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      <RoleSectionNav sections={dashboardSections} activeSection={activeSection} onChange={onSectionChange} />
+
+      <section id="buyer-overview" className="grid scroll-mt-28 grid-cols-2 gap-4 md:grid-cols-5">
         <article className="metric-card p-4">
           <p className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
             <CheckCircleIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
@@ -350,19 +428,19 @@ const BuyerDashboardPage = () => {
         </article>
       </section>
 
-      <section className="app-card p-5">
+      <section id="buyer-rewards" className="app-card scroll-mt-28 p-5">
         <div className="grid gap-5 xl:grid-cols-[20rem_1fr]">
-          <div className="spin-wheel-stage mx-auto">
+          <div className={`spin-wheel-stage mx-auto ${wheelAnimating ? 'is-spinning' : ''} ${wheelCelebrating ? 'is-celebrating' : ''}`}>
             <div className="spin-wheel-pointer" />
             <div
-              className={`spin-wheel-disc ${wheelAnimating ? 'is-spinning' : ''}`}
+              className={`spin-wheel-disc ${wheelAnimating ? 'is-spinning' : ''} ${spinningWheel && !wheelAnimating ? 'is-preparing' : ''}`}
               style={{
                 backgroundImage: wheelGradient,
                 transform: `rotate(${wheelRotation}deg)`,
               }}
             />
-            <div className="spin-wheel-hub">
-              <SparkleIcon className={`h-5 w-5 ${wheelAnimating ? 'animate-spin' : ''}`} />
+            <div className={`spin-wheel-hub ${wheelCelebrating ? 'is-celebrating' : ''}`}>
+              <SparkleIcon className={`h-5 w-5 ${(spinningWheel || wheelAnimating) ? 'animate-spin' : ''}`} />
             </div>
           </div>
 
@@ -465,7 +543,7 @@ const BuyerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="app-card p-5">
+      <section id="buyer-intelligence" className="app-card scroll-mt-28 p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="inline-flex items-center gap-2 text-xl font-bold">
             <TrendUpIcon className="h-5 w-5 text-[var(--accent)]" />
@@ -638,7 +716,7 @@ const BuyerDashboardPage = () => {
         ) : null}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <section id="buyer-network" className="grid scroll-mt-28 grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="app-card p-5">
           <h2 className="inline-flex items-center gap-2 text-xl font-bold">
             <HeartIcon className="h-5 w-5 text-[var(--accent)]" />
@@ -688,7 +766,7 @@ const BuyerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="app-card p-5">
+      <section id="buyer-orders" className="app-card scroll-mt-28 p-5">
         <h2 className="inline-flex items-center gap-2 text-xl font-bold">
           <StoreIcon className="h-5 w-5 text-[var(--accent)]" />
           Purchase History

@@ -23,9 +23,18 @@ import {
   verifyFarmer,
 } from '../features/admin/adminSlice';
 import { formatCurrency, formatDate } from '../utils/format';
+import RoleSectionNav from '../components/RoleSectionNav';
+import {
+  BoltIcon,
+  CandleChartIcon,
+  CheckCircleIcon,
+  CompassIcon,
+  PackageIcon,
+  ShieldCheckIcon,
+  StoreIcon,
+  TicketIcon,
+} from '../components/icons/AppIcons';
 import usePageTitle from '../hooks/usePageTitle';
-
-const tabs = ['overview', 'intelligence', 'users', 'products', 'orders', 'coupons', 'audit', 'content'];
 
 const AdminDashboardPage = () => {
   usePageTitle('Admin Dashboard');
@@ -243,6 +252,77 @@ const AdminDashboardPage = () => {
   const allVisibleSelected = useMemo(
     () => visibleUserIds.length > 0 && visibleUserIds.every((id) => selectedUserIds.includes(id)),
     [selectedUserIds, visibleUserIds],
+  );
+
+  const tabSections = useMemo(
+    () => [
+      {
+        key: 'overview',
+        label: 'Overview',
+        description: 'Platform pulse',
+        icon: CheckCircleIcon,
+        badge: stats?.totalUsers || 0,
+      },
+      {
+        key: 'intelligence',
+        label: 'Intelligence',
+        description: 'AI automation',
+        icon: CandleChartIcon,
+        badge: pricingInsights.recommendations.length,
+      },
+      {
+        key: 'users',
+        label: 'Users',
+        description: 'Identity controls',
+        icon: ShieldCheckIcon,
+        badge: users.length,
+      },
+      {
+        key: 'products',
+        label: 'Products',
+        description: 'Catalog moderation',
+        icon: PackageIcon,
+        badge: adminProducts.length,
+      },
+      {
+        key: 'orders',
+        label: 'Orders',
+        description: 'Fulfillment command',
+        icon: StoreIcon,
+        badge: adminOrders.length,
+      },
+      {
+        key: 'coupons',
+        label: 'Coupons',
+        description: 'Promotions',
+        icon: TicketIcon,
+        badge: coupons.length,
+      },
+      {
+        key: 'audit',
+        label: 'Audit',
+        description: 'Traceability',
+        icon: BoltIcon,
+        badge: auditMeta.total,
+      },
+      {
+        key: 'content',
+        label: 'Forum',
+        description: 'Community moderation',
+        icon: CompassIcon,
+        badge: forumPosts.length,
+      },
+    ],
+    [
+      adminOrders.length,
+      adminProducts.length,
+      auditMeta.total,
+      coupons.length,
+      forumPosts.length,
+      pricingInsights.recommendations.length,
+      stats?.totalUsers,
+      users.length,
+    ],
   );
 
   const formatAuditDetails = (details) => {
@@ -537,12 +617,8 @@ const AdminDashboardPage = () => {
       <section className="hero-panel bg-gradient-to-r from-[#102a18] via-[#1f4c2f] to-[#436d3b] p-6 text-white">
         <h1 className="text-3xl font-bold">Admin Operations Suite</h1>
         <p className="mt-2 text-sm text-white/90">Advanced moderation, finance, content, and growth controls for Krishihub.</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {tabs.map((item) => (
-            <button key={item} type="button" onClick={() => setTab(item)} className={`tab-button ${tab === item ? 'active' : ''}`}>
-              {item}
-            </button>
-          ))}
+        <div className="mt-4">
+          <RoleSectionNav sections={tabSections} activeSection={tab} onChange={setTab} className="!bg-white/8 !border-white/20" />
         </div>
       </section>
 
@@ -1441,4 +1517,5 @@ const AdminDashboardPage = () => {
 };
 
 export default AdminDashboardPage;
+
 

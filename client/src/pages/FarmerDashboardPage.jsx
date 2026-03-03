@@ -17,6 +17,7 @@ import {
   quickUpdateProduct,
 } from '../features/products/productsSlice';
 import { formatCurrency, formatDate } from '../utils/format';
+import RoleSectionNav from '../components/RoleSectionNav';
 import usePageTitle from '../hooks/usePageTitle';
 import { getSocket } from '../utils/socket';
 import {
@@ -114,6 +115,50 @@ const FarmerDashboardPage = () => {
     () => customerInsights.filter((item) => item.metrics?.segment === 'vip').length,
     [customerInsights],
   );
+
+  const [activeSection, setActiveSection] = useState('overview');
+
+  const dashboardSections = useMemo(
+    () => [
+      {
+        key: 'overview',
+        label: 'Overview',
+        description: 'Farm health and KPIs',
+        icon: TrendUpIcon,
+        badge: formatCurrency(farmerAnalytics?.revenue || 0),
+      },
+      {
+        key: 'intelligence',
+        label: 'Intelligence',
+        description: 'Demand and CRM insights',
+        icon: CandleChartIcon,
+        badge: demandInsights.length,
+      },
+      {
+        key: 'publish',
+        label: 'Publishing',
+        description: 'Add products and media',
+        icon: LeafIcon,
+        badge: farmerProducts.length,
+      },
+      {
+        key: 'inventory',
+        label: 'Inventory',
+        description: 'Real-time stock ops',
+        icon: PackageIcon,
+        badge: lowStockProducts.length,
+      },
+    ],
+    [demandInsights.length, farmerAnalytics?.revenue, farmerProducts.length, lowStockProducts.length],
+  );
+
+  const onSectionChange = (sectionKey) => {
+    setActiveSection(sectionKey);
+    const target = document.getElementById(`farmer-${sectionKey}`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const loadAdvancedInsights = async () => {
     setFarmerIntelLoading(true);
@@ -278,7 +323,9 @@ const FarmerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-6">
+      <RoleSectionNav sections={dashboardSections} activeSection={activeSection} onChange={onSectionChange} />
+
+      <section id="farmer-overview" className="grid scroll-mt-28 grid-cols-2 gap-4 md:grid-cols-6">
         <article className="metric-card p-4">
           <p className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
             <TrendUpIcon className="h-3.5 w-3.5 text-[var(--accent)]" />
@@ -379,7 +426,7 @@ const FarmerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.7fr_1fr]">
+      <section id="farmer-intelligence" className="grid scroll-mt-28 grid-cols-1 gap-4 xl:grid-cols-[1.7fr_1fr]">
         <div className="app-card p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="inline-flex items-center gap-2 panel-title">
@@ -500,7 +547,7 @@ const FarmerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
+      <section id="farmer-publish" className="grid scroll-mt-28 grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
         <form onSubmit={submitProduct} className="app-card space-y-3 p-5">
           <h2 className="inline-flex items-center gap-2 panel-title">
             <LeafIcon className="h-5 w-5 text-[var(--accent)]" />
@@ -574,7 +621,7 @@ const FarmerDashboardPage = () => {
         </div>
       </section>
 
-      <section className="app-card p-5">
+      <section id="farmer-inventory" className="app-card scroll-mt-28 p-5">
         <h2 className="inline-flex items-center gap-2 panel-title">
           <PackageIcon className="h-5 w-5 text-[var(--accent)]" />
           Inventory Operations

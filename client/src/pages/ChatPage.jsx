@@ -15,7 +15,7 @@ import {
 } from '../features/chat/chatSlice';
 import usePageTitle from '../hooks/usePageTitle';
 import { getSocket } from '../utils/socket';
-import { ClockIcon, MessageCircleIcon, SearchIcon, SendIcon, UserGroupIcon } from '../components/icons/AppIcons';
+import { ArrowRightIcon, MessageCircleIcon, SearchIcon, SendIcon, UserGroupIcon } from '../components/icons/AppIcons';
 
 const formatTime = (value) => {
   if (!value) return '-';
@@ -27,9 +27,58 @@ const formatTime = (value) => {
   });
 };
 
+const formatTimeShort = (value) => {
+  if (!value) return '';
+  return new Date(value).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatDayLabel = (value) => {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const toDayKey = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((toDayKey(now) - toDayKey(date)) / 86400000);
+
+  if (dayDiff === 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  });
+};
+
 const getSenderIdFromMessage = (message) => {
   if (!message?.sender) return '';
   return typeof message.sender === 'object' ? message.sender._id || '' : message.sender;
+};
+
+const getOtherParticipant = (chat, userId) =>
+  (chat?.participants || []).find((participant) => participant._id !== userId) || null;
+
+const getInitials = (value) => {
+  const words = String(value || '')
+    .split(' ')
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (!words.length) return 'KH';
+  return words
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join('');
+};
+
+const QUICK_REPLIES = {
+  farmer: ['Can you share fresh stock status?', 'What is your best rate today?', 'Need delivery timeline please'],
+  buyer: ['Stock is available today', 'I can arrange dispatch quickly', 'Sharing final quote in a moment'],
 };
 
 const ChatPage = () => {
@@ -55,15 +104,31 @@ const ChatPage = () => {
   const [message, setMessage] = useState('');
   const [typingByChat, setTypingByChat] = useState({});
   const [socketConnected, setSocketConnected] = useState(false);
+  const [mobilePane, setMobilePane] = useState('list');
   const bottomRef = useRef(null);
+  const messageInputRef = useRef(null);
   const typingStopTimeoutRef = useRef(null);
   const typingCleanupRef = useRef(new Map());
   const isTypingRef = useRef(false);
   const readSyncTimeoutRef = useRef(null);
 
   const activeChat = useMemo(() => chats.find((chat) => chat._id === activeChatId), [activeChatId, chats]);
+  const activeParticipant = useMemo(() => getOtherParticipant(activeChat, user?._id), [activeChat, user?._id]);
   const activeMessages = messagesByChat[activeChatId] || [];
   const activeMeta = messagesMetaByChat[activeChatId] || { page: 1, hasMore: false };
+
+  const messageRows = useMemo(() => {
+    let previousLabel = '';
+
+    return activeMessages.map((entry) => {
+      const dayLabel = formatDayLabel(entry.createdAt);
+      const showDayLabel = Boolean(dayLabel && dayLabel !== previousLabel);
+      previousLabel = dayLabel;
+
+      return { entry, dayLabel, showDayLabel };
+    });
+  }, [activeMessages]);
+
   const activeTypingNames = useMemo(() => {
     if (!activeChatId) return [];
 
@@ -79,7 +144,7 @@ const ChatPage = () => {
     if (!search.trim()) return chats;
     const q = search.trim().toLowerCase();
     return chats.filter((chat) => {
-      const other = (chat.participants || []).find((participant) => participant._id !== user?._id);
+      const other = getOtherParticipant(chat, user?._id);
       const inName = other?.name?.toLowerCase().includes(q);
       const inRole = other?.role?.toLowerCase().includes(q);
       const inLastMessage = chat.lastMessagePreview?.toLowerCase().includes(q);
@@ -97,6 +162,17 @@ const ChatPage = () => {
       return inName || inRole || inDistrict;
     });
   }, [contacts, search]);
+
+  const quickReplies = useMemo(
+    () => QUICK_REPLIES[activeParticipant?.role === 'farmer' ? 'farmer' : 'buyer'],
+    [activeParticipant?.role],
+  );
+
+  useEffect(() => {
+    if (activeChatId) {
+      setMobilePane('chat');
+    }
+  }, [activeChatId]);
 
   useEffect(() => {
     dispatch(fetchChats());
@@ -151,12 +227,7 @@ const ChatPage = () => {
       const senderId = getSenderIdFromMessage(payload?.message);
       dispatch(appendIncomingMessage(payload));
 
-      if (
-        incomingChatId &&
-        incomingChatId === activeChatId &&
-        senderId &&
-        senderId !== user._id
-      ) {
+      if (incomingChatId && incomingChatId === activeChatId && senderId && senderId !== user._id) {
         queueMarkRead(incomingChatId);
       }
     };
@@ -296,6 +367,7 @@ const ChatPage = () => {
   const onStartChatWithContact = async (participantId) => {
     const action = await dispatch(openChat({ participantId }));
     if (openChat.fulfilled.match(action)) {
+      setMobilePane('chat');
       dispatch(fetchChatContacts());
       toast.success('Chat opened');
     } else {
@@ -345,6 +417,12 @@ const ChatPage = () => {
     }, 1200);
   };
 
+  const onUseQuickReply = (value) => {
+    if (!activeChatId) return;
+    setMessage(value);
+    messageInputRef.current?.focus();
+  };
+
   const loadOlderMessages = () => {
     if (!activeChatId) return;
     dispatch(
@@ -358,185 +436,238 @@ const ChatPage = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_2fr]">
-      <aside className="app-card p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold">Messages</h1>
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                socketConnected
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-amber-100 text-amber-700'
-              }`}
-            >
+    <div className="space-y-3">
+      <div className="chat-mobile-switch xl:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePane('list')}
+          className={`chat-mobile-switch-btn ${mobilePane === 'list' ? 'active' : ''}`}
+        >
+          Threads
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePane('chat')}
+          className={`chat-mobile-switch-btn ${mobilePane === 'chat' ? 'active' : ''}`}
+          disabled={!activeChatId}
+        >
+          Conversation
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+      <aside className={`chat-sidebar app-card p-0 ${mobilePane === 'chat' ? 'chat-hide-mobile' : ''}`}>
+        <div className="chat-sidebar-header">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h1 className="text-xl font-bold">Conversations</h1>
+              <p className="text-xs text-[var(--text-muted)]">Farmer and buyer real-time workspace</p>
+            </div>
+            <span className={`chat-connection-pill ${socketConnected ? 'online' : 'offline'}`}>
+              <span className="chat-connection-dot" />
               {socketConnected ? 'Live' : 'Reconnecting'}
             </span>
           </div>
-          <MessageCircleIcon className="h-5 w-5 text-[var(--accent)]" />
-        </div>
 
-        <div className="mt-3">
-          <label className="relative block">
+          <label className="relative mt-3 block">
             <SearchIcon className="input-leading-icon" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search chats or contacts"
+              placeholder="Search people, role, district"
               className="input input-with-icon"
             />
           </label>
         </div>
 
-        <div className="mt-4">
-          <div className="mb-2 flex items-center gap-2">
-            <UserGroupIcon className="h-4 w-4 text-[var(--accent)]" />
-            <p className="text-sm font-semibold">Suggested Contacts</p>
-          </div>
-          <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
-            {contactsLoading && <p className="text-xs text-[var(--text-muted)]">Loading contacts...</p>}
-            {!contactsLoading &&
-              filteredContacts.slice(0, 10).map((contact) => (
-                <button
-                  key={contact._id}
-                  type="button"
-                  onClick={() => onStartChatWithContact(contact._id)}
-                  className="w-full rounded-xl border border-[var(--line)] px-3 py-2 text-left text-sm hover:bg-[var(--bg-soft)]"
-                >
-                  <p className="font-semibold">{contact.name}</p>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {contact.role} | {contact.location?.district || 'N/A'}
-                  </p>
-                </button>
-              ))}
-            {!contactsLoading && !filteredContacts.length && (
-              <p className="text-xs text-[var(--text-muted)]">
-                Contacts appear after orders, subscriptions, or existing chats.
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <p className="mb-2 text-sm font-semibold">Threads</p>
-          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-            {loading && <p className="text-xs text-[var(--text-muted)]">Loading chats...</p>}
-            {!loading &&
-              filteredChats.map((chat) => {
-                const other = (chat.participants || []).find((participant) => participant._id !== user?._id);
-
-                return (
+        <div className="chat-sidebar-body">
+          <section className="chat-block">
+            <div className="chat-block-title-row">
+              <p className="chat-block-title">Suggested Contacts</p>
+              <UserGroupIcon className="h-4 w-4 text-[var(--accent)]" />
+            </div>
+            <div className="chat-list-scroll">
+              {contactsLoading && <p className="chat-empty-state">Loading contacts...</p>}
+              {!contactsLoading &&
+                filteredContacts.slice(0, 12).map((contact) => (
                   <button
-                    key={chat._id}
+                    key={contact._id}
                     type="button"
-                    onClick={() => dispatch(setActiveChatId(chat._id))}
-                    className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
-                      chat._id === activeChatId
-                        ? 'border-[var(--accent)] bg-[var(--bg-soft)]'
-                        : 'border-[var(--line)] hover:bg-[var(--bg-soft)]'
-                    }`}
+                    onClick={() => onStartChatWithContact(contact._id)}
+                    className="chat-contact-card"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-1 font-semibold">{other?.name || 'Conversation'}</p>
-                      {chat.unreadCount > 0 && (
-                        <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-white">
-                          {chat.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                    <p className="line-clamp-1 text-xs text-[var(--text-muted)]">
-                      {chat.lastMessagePreview || 'No messages yet'}
-                    </p>
-                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">{formatTime(chat.lastMessageAt)}</p>
+                    <span className="chat-avatar">{getInitials(contact.name)}</span>
+                    <span className="chat-contact-copy">
+                      <span className="chat-contact-name">{contact.name}</span>
+                      <span className="chat-contact-meta">
+                        {contact.role} | {contact.location?.district || 'N/A'}
+                      </span>
+                    </span>
                   </button>
-                );
-              })}
-            {!loading && !filteredChats.length && (
-              <p className="text-xs text-[var(--text-muted)]">No conversations yet.</p>
-            )}
-          </div>
+                ))}
+              {!contactsLoading && !filteredContacts.length && (
+                <p className="chat-empty-state">Contacts appear after orders, subscriptions, or existing chats.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="chat-block">
+            <div className="chat-block-title-row">
+              <p className="chat-block-title">Threads</p>
+              <span className="badge">{filteredChats.length}</span>
+            </div>
+            <div className="chat-list-scroll">
+              {loading && <p className="chat-empty-state">Loading chats...</p>}
+              {!loading &&
+                filteredChats.map((chat) => {
+                  const other = getOtherParticipant(chat, user?._id);
+
+                  return (
+                    <button
+                      key={chat._id}
+                      type="button"
+                      onClick={() => {
+                        dispatch(setActiveChatId(chat._id));
+                        setMobilePane('chat');
+                      }}
+                      className={`chat-thread-card ${chat._id === activeChatId ? 'active' : ''}`}
+                    >
+                      <span className="chat-avatar">{getInitials(other?.name)}</span>
+                      <span className="chat-thread-copy">
+                        <span className="chat-thread-head">
+                          <span className="chat-thread-name">{other?.name || 'Conversation'}</span>
+                          <span className="chat-thread-time">{formatTimeShort(chat.lastMessageAt)}</span>
+                        </span>
+                        <span className="chat-thread-preview">{chat.lastMessagePreview || 'No messages yet'}</span>
+                      </span>
+                      {chat.unreadCount > 0 && <span className="chat-thread-unread">{chat.unreadCount}</span>}
+                    </button>
+                  );
+                })}
+              {!loading && !filteredChats.length && <p className="chat-empty-state">No conversations yet.</p>}
+            </div>
+          </section>
         </div>
       </aside>
 
-      <section className="app-card flex h-[74vh] flex-col p-4">
-        <div className="border-b border-[var(--line)] pb-3">
-          <h2 className="text-lg font-bold">{activeChat ? 'Conversation' : 'Select a conversation'}</h2>
-          {activeChat && (
-            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-[var(--text-muted)]">
-              <span className="inline-flex items-center gap-1">
-                <ClockIcon className="h-3.5 w-3.5" /> Updated {formatTime(activeChat.lastMessageAt)}
-              </span>
-              {activeChat.context?.subject && (
-                <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[10px]">
-                  {activeChat.context.subject}
+      <section className={`chat-shell app-card p-0 ${mobilePane === 'list' ? 'chat-hide-mobile' : ''}`}>
+        <header className="chat-header">
+          {activeChat ? (
+            <>
+              <button type="button" className="chat-mobile-back xl:hidden" onClick={() => setMobilePane('list')}>
+                <ArrowRightIcon className="h-3.5 w-3.5 rotate-180" />
+                Threads
+              </button>
+              <span className="chat-avatar">{getInitials(activeParticipant?.name)}</span>
+              <div className="chat-header-copy">
+                <h2 className="chat-header-title">{activeParticipant?.name || 'Conversation'}</h2>
+                <p className="chat-header-meta">
+                  {activeParticipant?.role || 'participant'}
+                  <span className="chat-dot">|</span>
+                  Updated {formatTime(activeChat.lastMessageAt)}
+                </p>
+              </div>
+              <div className="chat-header-right">
+                {activeChat.context?.subject ? <span className="badge">{activeChat.context.subject}</span> : null}
+                <span className={`chat-connection-pill ${socketConnected ? 'online' : 'offline'}`}>
+                  <span className="chat-connection-dot" />
+                  {socketConnected ? 'Connected' : 'Syncing'}
                 </span>
-              )}
-            </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="chat-avatar">KH</span>
+              <div className="chat-header-copy">
+                <h2 className="chat-header-title">Select a conversation</h2>
+                <p className="chat-header-meta">Start from contacts or open a previous thread</p>
+              </div>
+            </>
           )}
-        </div>
+        </header>
 
-        <div className="mt-3 flex-1 space-y-2 overflow-y-auto rounded-xl border border-[var(--line)] p-3">
+        <div className="chat-message-area">
           {activeChat && activeMeta.hasMore && (
-            <button
-              type="button"
-              className="btn-secondary mx-auto block"
-              onClick={loadOlderMessages}
-              disabled={messagesLoading}
-            >
+            <button type="button" className="btn-secondary mx-auto" onClick={loadOlderMessages} disabled={messagesLoading}>
               {messagesLoading ? 'Loading...' : 'Load older messages'}
             </button>
           )}
 
-          {!activeChat && <p className="text-sm text-[var(--text-muted)]">Choose a thread or start from contacts.</p>}
+          {!activeChat && <p className="chat-empty-message">Choose a thread to start messaging.</p>}
 
           {activeChat &&
-            activeMessages.map((entry) => {
+            messageRows.map(({ entry, dayLabel, showDayLabel }) => {
               const senderId = getSenderIdFromMessage(entry);
               const mine = senderId === user?._id;
+              const senderName =
+                typeof entry.sender === 'object'
+                  ? entry.sender?.name || activeParticipant?.name || 'Participant'
+                  : mine
+                    ? user?.name || 'You'
+                    : activeParticipant?.name || 'Participant';
 
               return (
-                <div key={entry._id || `${senderId}-${entry.createdAt}`} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[78%] rounded-xl px-3 py-2 text-sm ${
-                      mine ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-soft)] text-[var(--text)]'
-                    }`}
-                  >
-                    <p>{entry.text}</p>
-                    <p className={`mt-1 text-[10px] ${mine ? 'text-white/80' : 'text-[var(--text-muted)]'}`}>
-                      {formatTime(entry.createdAt)}
-                    </p>
+                <div key={entry._id || `${senderId}-${entry.createdAt}`}>
+                  {showDayLabel ? <div className="chat-day-divider">{dayLabel}</div> : null}
+                  <div className={`chat-bubble-row ${mine ? 'mine' : ''}`}>
+                    {!mine && <span className="chat-avatar tiny">{getInitials(senderName)}</span>}
+                    <article className={`chat-bubble ${mine ? 'mine' : ''}`}>
+                      {!mine ? <p className="chat-bubble-author">{senderName}</p> : null}
+                      <p className="chat-bubble-text">{entry.text}</p>
+                      <p className="chat-bubble-time">{formatTime(entry.createdAt)}</p>
+                    </article>
                   </div>
                 </div>
               );
             })}
+
           {activeChat && activeTypingNames.length > 0 && (
-            <p className="text-xs text-[var(--accent)]">
-              {activeTypingNames.join(', ')} {activeTypingNames.length === 1 ? 'is' : 'are'} typing...
-            </p>
+            <div className="chat-typing-indicator">
+              <span className="chat-typing-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span>
+                {activeTypingNames.join(', ')} {activeTypingNames.length === 1 ? 'is' : 'are'} typing...
+              </span>
+            </div>
           )}
           <div ref={bottomRef} />
         </div>
 
-        <form onSubmit={onSendMessage} className="mt-3 flex gap-2">
-          <input
-            value={message}
-            onChange={onMessageInputChange}
-            placeholder={activeChat ? 'Type your message' : 'Select a conversation first'}
-            className="input flex-1"
-            disabled={!activeChat || sending}
-          />
-          <button
-            type="submit"
-            className="btn-primary inline-flex items-center gap-2"
-            disabled={!activeChat || sending || !message.trim()}
-          >
+        {activeChat && (
+          <div className="chat-quick-replies">
+            {quickReplies.map((quickReply) => (
+              <button key={quickReply} type="button" className="chat-quick-reply-pill" onClick={() => onUseQuickReply(quickReply)}>
+                {quickReply}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={onSendMessage} className="chat-compose">
+          <label className="relative flex-1">
+            <MessageCircleIcon className="input-leading-icon" />
+            <input
+              ref={messageInputRef}
+              value={message}
+              onChange={onMessageInputChange}
+              placeholder={activeChat ? 'Type your message' : 'Select a conversation first'}
+              className="input input-with-icon"
+              disabled={!activeChat || sending}
+            />
+          </label>
+          <button type="submit" className="btn-primary chat-send-button" disabled={!activeChat || sending || !message.trim()}>
             <SendIcon className="h-4 w-4" />
             {sending ? 'Sending' : 'Send'}
           </button>
         </form>
       </section>
+      </div>
     </div>
   );
 };
 
 export default ChatPage;
+

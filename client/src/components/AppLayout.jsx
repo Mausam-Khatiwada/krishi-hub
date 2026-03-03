@@ -4,6 +4,7 @@ import Navbar from './Navbar';
 import Footer from './Footer';
 import CommandPalette from './CommandPalette';
 import PwaInstallPrompt from './PwaInstallPrompt';
+import MobileBottomNav from './MobileBottomNav';
 
 const AppLayout = () => {
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -26,12 +27,13 @@ const AppLayout = () => {
     <div className="min-h-screen overflow-x-clip">
       <div className="top-progress" style={{ width: `${scrollProgress}%` }} />
       <Navbar />
-      <main className="mx-auto max-w-[88rem] px-4 py-6 page-enter md:px-6 md:py-8">
+      <main className="mx-auto max-w-[88rem] px-4 py-6 pb-24 page-enter md:px-6 md:py-8 md:pb-28 lg:pb-8">
         <Outlet />
       </main>
       <Footer />
       <CommandPalette />
       <PwaInstallPrompt />
+      <MobileBottomNav />
     </div>
   );
 };
