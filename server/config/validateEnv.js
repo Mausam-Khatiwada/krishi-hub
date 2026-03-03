@@ -47,6 +47,11 @@ const validateEnv = () => {
     issues.push('CLIENT_URL must contain at least one allowed origin.');
   }
 
+  const serverUrl = String(process.env.SERVER_URL || '').trim();
+  if (isProduction && !serverUrl) {
+    issues.push('SERVER_URL is required in production for payment callback URL generation.');
+  }
+
   const registerOtpLength = parsePositiveInt(process.env.REGISTER_OTP_LENGTH || '6');
   if (!registerOtpLength || !validateRange(registerOtpLength, 4, 8)) {
     issues.push('REGISTER_OTP_LENGTH must be between 4 and 8.');
@@ -84,6 +89,24 @@ const validateEnv = () => {
 
   if (configuredSmtpFields.length && !hasValue(process.env.SMTP_FROM)) {
     const message = 'SMTP_FROM is recommended when SMTP is configured.';
+    if (isProduction) issues.push(message);
+    else warnings.push(message);
+  }
+
+  const esewaFields = ['ESEWA_BASE_URL', 'ESEWA_PRODUCT_CODE', 'ESEWA_SECRET_KEY'];
+  const configuredEsewaFields = esewaFields.filter((field) => hasValue(process.env[field]));
+  if (configuredEsewaFields.length > 0 && configuredEsewaFields.length < esewaFields.length) {
+    const message =
+      'eSewa configuration is incomplete. Set ESEWA_BASE_URL, ESEWA_PRODUCT_CODE, and ESEWA_SECRET_KEY together.';
+    if (isProduction) issues.push(message);
+    else warnings.push(message);
+  }
+
+  const khaltiFields = ['KHALTI_BASE_URL', 'KHALTI_SECRET_KEY', 'KHALTI_WEBSITE_URL'];
+  const configuredKhaltiFields = khaltiFields.filter((field) => hasValue(process.env[field]));
+  if (configuredKhaltiFields.length > 0 && configuredKhaltiFields.length < khaltiFields.length) {
+    const message =
+      'Khalti configuration is incomplete. Set KHALTI_BASE_URL, KHALTI_SECRET_KEY, and KHALTI_WEBSITE_URL together.';
     if (isProduction) issues.push(message);
     else warnings.push(message);
   }

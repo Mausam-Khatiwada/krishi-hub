@@ -27,6 +27,7 @@ const PAYMENT_METHOD_LABELS = {
 const PAYMENT_REDIRECT_QUERY_FIELDS = ['payment', 'provider', 'orderId', 'message'];
 const ESEWA_SIGNED_FIELD_NAMES = ['total_amount', 'transaction_uuid', 'product_code'];
 const PAYMENT_CHECKOUT_PURPOSE = 'payment-checkout';
+const ESEWA_TRANSACTION_KEYS = ['transaction_uuid', 'oid'];
 
 const DELIVERY_ZONES = {
   'bagmati': { minDays: 1, maxDays: 2, partners: ['KrishiExpress', 'GreenGo Logistics', 'NepXpress'] },
@@ -129,6 +130,19 @@ const buildEsewaSignatureMessage = ({ payload = {}, signedFieldNames }) => {
     .filter(Boolean);
 
   return fieldNames.map((key) => `${key}=${String(payload[key] ?? '')}`).join(',');
+};
+
+const resolveEsewaTransactionUuid = (sources = []) => {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const key of ESEWA_TRANSACTION_KEYS) {
+      const raw = source[key];
+      if (typeof raw === 'undefined' || raw === null) continue;
+      const value = String(raw).trim();
+      if (value) return value;
+    }
+  }
+  return '';
 };
 
 const signEsewaSignature = ({ payload = {}, signedFieldNames, secretKey }) =>
@@ -1282,9 +1296,7 @@ const handleEsewaSuccessCallback = async (req, res) => {
   const payload =
     decodeEsewaDataPayload(req.query.data || req.body?.data) ||
     decodeEsewaDataPayload(req.query.response || req.body?.response);
-  const transactionUuid = String(
-    payload?.transaction_uuid || req.query.transaction_uuid || req.body?.transaction_uuid || '',
-  ).trim();
+  const transactionUuid = resolveEsewaTransactionUuid([payload, req.query, req.body]);
   const order = await findOrderForEsewa({ orderId, transactionUuid, callbackToken });
 
   if (!order) {
@@ -1471,7 +1483,7 @@ const handleEsewaSuccessCallback = async (req, res) => {
 const handleEsewaFailureCallback = async (req, res) => {
   const provider = 'esewa';
   const orderId = String(req.params.orderId || req.query.orderId || '').trim();
-  const transactionUuid = String(req.query.transaction_uuid || '').trim();
+  const transactionUuid = resolveEsewaTransactionUuid([req.query, req.body]);
   const callbackToken = String(req.query.token || '').trim();
   const order = await findOrderForEsewa({ orderId, transactionUuid, callbackToken });
 
