@@ -356,15 +356,15 @@ const HomePage = () => {
             <h1 className="max-w-3xl font-display text-4xl font-bold leading-tight md:text-5xl">{t('shopFresh')}</h1>
             <p className="mt-3 max-w-3xl text-sm text-white/90 md:text-base">{t('tagline')}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={() => applyPowerMode('value')} className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+              <button type="button" onClick={() => applyPowerMode('value')} className="hero-power-chip">
                 <BoltIcon className="h-4 w-4" />
                 Value Picks
               </button>
-              <button type="button" onClick={() => applyPowerMode('organic')} className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+              <button type="button" onClick={() => applyPowerMode('organic')} className="hero-power-chip">
                 <LeafIcon className="h-4 w-4" />
                 Organic Premium
               </button>
-              <button type="button" onClick={() => applyPowerMode('nearby')} className="btn-secondary !border-white/30 !bg-white/15 !text-white">
+              <button type="button" onClick={() => applyPowerMode('nearby')} className="hero-power-chip">
                 <MapPinIcon className="h-4 w-4" />
                 Nearby Farms
               </button>
@@ -394,14 +394,14 @@ const HomePage = () => {
         <form onSubmit={submitFilters} className="relative z-10 mt-7 rounded-2xl border border-white/20 bg-white/94 p-4 text-[#1f2b16] shadow-xl backdrop-blur-md">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
             <label className="relative md:col-span-2">
-              <SearchIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#5d6d5a]" />
+              <SearchIcon className="input-leading-icon" />
               <input
                 type="text"
                 list="market-search-suggestions"
                 placeholder={t('searchPlaceholder')}
                 value={localFilters.search}
                 onChange={(event) => setLocalFilters((prev) => ({ ...prev, search: event.target.value }))}
-                className="input bg-white pl-9 text-[#1f2b16]"
+                className="input input-with-icon bg-white text-[#1f2b16]"
               />
               <datalist id="market-search-suggestions">
                 {searchSuggestions.map((suggestion) => (
@@ -453,13 +453,13 @@ const HomePage = () => {
             </select>
 
             <label className="relative md:col-span-2">
-              <MapPinIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#5d6d5a]" />
+              <MapPinIcon className="input-leading-icon" />
               <input
                 type="text"
                 placeholder="District or province"
                 value={localFilters.location}
                 onChange={(event) => setLocalFilters((prev) => ({ ...prev, location: event.target.value }))}
-                className="input bg-white pl-9 text-[#1f2b16]"
+                className="input input-with-icon bg-white text-[#1f2b16]"
               />
             </label>
 
