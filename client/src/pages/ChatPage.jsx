@@ -15,7 +15,7 @@ import {
 } from '../features/chat/chatSlice';
 import usePageTitle from '../hooks/usePageTitle';
 import { getSocket } from '../utils/socket';
-import { ArrowRightIcon, MessageCircleIcon, SearchIcon, SendIcon, UserGroupIcon } from '../components/icons/AppIcons';
+import { ArrowRightIcon, BoltIcon, MessageCircleIcon, SearchIcon, SendIcon, ShieldCheckIcon, StoreIcon, UserGroupIcon } from '../components/icons/AppIcons';
 
 const formatTime = (value) => {
   if (!value) return '-';
@@ -167,6 +167,21 @@ const ChatPage = () => {
     () => QUICK_REPLIES[activeParticipant?.role === 'farmer' ? 'farmer' : 'buyer'],
     [activeParticipant?.role],
   );
+
+  const recentHighlights = useMemo(() => activeMessages.slice(-4).reverse(), [activeMessages]);
+
+  const actionCards = useMemo(
+    () => [
+      { key: 'order', label: 'Create order', subtitle: 'Start a fresh order flow', icon: StoreIcon },
+      { key: 'quote', label: 'Request quote', subtitle: 'Ask for updated pricing', icon: BoltIcon },
+      { key: 'verified', label: 'Verify farmer', subtitle: 'Review verification status', icon: ShieldCheckIcon },
+    ],
+    [],
+  );
+
+  const runAction = (label) => {
+    toast.success(`${label} queued`);
+  };
 
   useEffect(() => {
     if (activeChatId) {
@@ -455,7 +470,7 @@ const ChatPage = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)] 2xl:grid-cols-[22rem_minmax(0,1fr)_18rem]">
       <aside className={`chat-sidebar app-card p-0 ${mobilePane === 'chat' ? 'chat-hide-mobile' : ''}`}>
         <div className="chat-sidebar-header">
           <div className="flex items-center justify-between gap-2">
@@ -664,6 +679,60 @@ const ChatPage = () => {
           </button>
         </form>
       </section>
+
+      <aside className="chat-insights app-card p-4 hidden 2xl:flex">
+        <div className="chat-insights-block">
+          <p className="chat-insights-title">Conversation intel</p>
+          <p className="chat-insights-subtitle">Live context for this buyer-farmer thread.</p>
+          <div className="chat-insights-metrics">
+            <div>
+              <p className="chat-insights-label">Status</p>
+              <p className="chat-insights-value">{activeChat ? 'Active' : 'Idle'}</p>
+            </div>
+            <div>
+              <p className="chat-insights-label">Last activity</p>
+              <p className="chat-insights-value">{activeChat ? formatTimeShort(activeChat.lastMessageAt) : '-'}</p>
+            </div>
+            <div>
+              <p className="chat-insights-label">Participants</p>
+              <p className="chat-insights-value">{activeChat?.participants?.length || 0}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="chat-insights-block">
+          <p className="chat-insights-title">Smart actions</p>
+          <div className="chat-action-grid">
+            {actionCards.map((action) => (
+              <button key={action.key} type="button" className="chat-action-card" onClick={() => runAction(action.label)}>
+                <span className="chat-action-icon">
+                  <action.icon className="h-4 w-4" />
+                </span>
+                <span className="chat-action-copy">
+                  <span className="chat-action-title">{action.label}</span>
+                  <span className="chat-action-subtitle">{action.subtitle}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="chat-insights-block">
+          <p className="chat-insights-title">Recent highlights</p>
+          <div className="chat-highlights">
+            {recentHighlights.length ? (
+              recentHighlights.map((entry) => (
+                <div key={entry._id || entry.createdAt} className="chat-highlight-item">
+                  <p className="chat-highlight-text">{entry.text}</p>
+                  <span className="chat-highlight-time">{formatTimeShort(entry.createdAt)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="chat-insights-empty">Start messaging to see highlights.</p>
+            )}
+          </div>
+        </div>
+      </aside>
       </div>
     </div>
   );

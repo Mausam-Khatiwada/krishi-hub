@@ -1,6 +1,7 @@
 ﻿import { createSlice } from '@reduxjs/toolkit';
 
-const initialTheme = localStorage.getItem('krishihub_theme') || 'light';
+const resolveTheme = () => (localStorage.getItem('krishihub_theme') === 'dark' ? 'dark' : 'light');
+const initialTheme = resolveTheme();
 
 const uiSlice = createSlice({
   name: 'ui',
@@ -9,7 +10,7 @@ const uiSlice = createSlice({
   },
   reducers: {
     restoreTheme: (state) => {
-      const stored = localStorage.getItem('krishihub_theme') || 'light';
+      const stored = resolveTheme();
       state.theme = stored;
       document.documentElement.setAttribute('data-theme', stored);
     },
