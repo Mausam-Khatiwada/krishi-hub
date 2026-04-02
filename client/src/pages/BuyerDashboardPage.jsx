@@ -30,7 +30,7 @@ import { formatCurrency, formatDate } from '../utils/format';
 import usePageTitle from '../hooks/usePageTitle';
 
 const WHEEL_SEGMENTS = [
-  { key: 'no-reward', label: 'No Reward', color: '#455a4f' },
+  { key: 'no-reward', label: 'No Reward, Try Again', color: '#455a4f' },
   { key: 'off-5', label: '5% OFF', color: '#31b665' },
   { key: 'off-8', label: '8% OFF', color: '#2a8a5a' },
   { key: 'off-12', label: '12% OFF', color: '#3aa06f' },
@@ -42,10 +42,17 @@ const WHEEL_SEGMENTS = [
 ];
 
 const SEGMENT_SWEEP = 360 / WHEEL_SEGMENTS.length;
+const WHEEL_GRADIENT_START_DEG = -90;
+const WHEEL_POINTER_ANGLE_DEG = 0;
 const SPIN_ANIMATION_MS = 5600;
 const SPIN_CELEBRATION_MS = 1250;
 const MIN_SPIN_TURNS = 7;
 const normalizeRewardToken = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeAngle = (angle) => ((angle % 360) + 360) % 360;
+const getSegmentCenterAngle = (segmentIndex) =>
+  WHEEL_GRADIENT_START_DEG + segmentIndex * SEGMENT_SWEEP + SEGMENT_SWEEP / 2;
+const getDesiredWheelRotation = (segmentIndex) =>
+  normalizeAngle(WHEEL_POINTER_ANGLE_DEG - getSegmentCenterAngle(segmentIndex));
 
 const BuyerDashboardPage = () => {
   usePageTitle('Buyer Dashboard');
@@ -139,7 +146,7 @@ const BuyerDashboardPage = () => {
       const end = ((index + 1) * SEGMENT_SWEEP).toFixed(2);
       return `${segment.color} ${start}deg ${end}deg`;
     });
-    return `conic-gradient(from -90deg, ${stops.join(', ')})`;
+    return `conic-gradient(from ${WHEEL_GRADIENT_START_DEG}deg, ${stops.join(', ')})`;
   }, []);
 
   useEffect(() => {
@@ -320,15 +327,14 @@ const BuyerDashboardPage = () => {
               ),
             );
 
-      const centerAngle = targetIndex * SEGMENT_SWEEP + SEGMENT_SWEEP / 2;
-      const desiredRotation = ((360 - centerAngle) % 360 + 360) % 360;
+      const desiredRotation = getDesiredWheelRotation(targetIndex);
       const fullTurns = 360 * (MIN_SPIN_TURNS + Math.floor(Math.random() * 3));
 
       setWheelAnimating(true);
       setSpinState(data.spin || null);
       setSpinResult(null);
       setWheelRotation((previous) => {
-        const normalizedCurrent = ((previous % 360) + 360) % 360;
+        const normalizedCurrent = normalizeAngle(previous);
         const delta = (desiredRotation - normalizedCurrent + 360) % 360;
         return previous + fullTurns + delta;
       });
@@ -430,10 +436,12 @@ const BuyerDashboardPage = () => {
 
       <section id="buyer-rewards" className="app-card scroll-mt-28 p-5">
         <div className="grid gap-5 xl:grid-cols-[20rem_1fr]">
-          <div className={`spin-wheel-stage mx-auto ${wheelAnimating ? 'is-spinning' : ''} ${wheelCelebrating ? 'is-celebrating' : ''}`}>
+          <div
+            className={`spin-wheel-stage mx-auto ${spinningWheel && !wheelAnimating ? 'is-preparing' : ''} ${wheelAnimating ? 'is-spinning' : ''} ${wheelCelebrating ? 'is-celebrating' : ''}`}
+          >
             <div className="spin-wheel-pointer" />
             <div
-              className={`spin-wheel-disc ${wheelAnimating ? 'is-spinning' : ''} ${spinningWheel && !wheelAnimating ? 'is-preparing' : ''}`}
+              className={`spin-wheel-disc ${wheelAnimating ? 'is-spinning' : ''}`}
               style={{
                 backgroundImage: wheelGradient,
                 transform: `rotate(${wheelRotation}deg)`,

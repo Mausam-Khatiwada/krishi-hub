@@ -1,10 +1,13 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Navbar from './Navbar';
 import Footer from './Footer';
 import CommandPalette from './CommandPalette';
 import PwaInstallPrompt from './PwaInstallPrompt';
 import MobileBottomNav from './MobileBottomNav';
+import ChatToastListener from './ChatToastListener';
+import NotificationToastListener from './NotificationToastListener';
+import FloatingActions from './FloatingActions';
 
 const AppLayout = () => {
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -34,9 +37,13 @@ const AppLayout = () => {
       <CommandPalette />
       <PwaInstallPrompt />
       <MobileBottomNav />
+      <ChatToastListener />
+      <NotificationToastListener />
+      <FloatingActions />
     </div>
   );
 };
 
 export default AppLayout;
+
 

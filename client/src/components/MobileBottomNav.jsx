@@ -12,8 +12,7 @@ import {
   SettingsIcon,
   StoreIcon,
 } from './icons/AppIcons';
-
-const OPEN_COMMAND_PALETTE_EVENT = 'krishihub:open-command-palette';
+import { OPEN_COMMAND_PALETTE_EVENT } from '../constants/events';
 
 const MobileBottomNav = () => {
   const { user } = useAppSelector((state) => state.auth);
@@ -97,3 +96,4 @@ const MobileBottomNav = () => {
 };
 
 export default MobileBottomNav;
+

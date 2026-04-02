@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import {
   fetchNotifications,
@@ -7,10 +7,12 @@ import {
 } from '../features/notifications/notificationSlice';
 import { formatDate } from '../utils/format';
 import { BellIcon, ClockIcon, SparkleIcon } from './icons/AppIcons';
+import { OPEN_NOTIFICATIONS_EVENT } from '../constants/events';
 
 const NotificationPanel = () => {
   const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef(null);
   const { notifications } = useAppSelector((state) => state.notifications);
 
   const unreadCount = useMemo(
@@ -22,26 +24,64 @@ const NotificationPanel = () => {
     dispatch(fetchNotifications());
   }, [dispatch]);
 
+  useEffect(() => {
+    const openPanel = () => setOpen(true);
+    window.addEventListener(OPEN_NOTIFICATIONS_EVENT, openPanel);
+    return () => window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, openPanel);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    const onPointerDown = (event) => {
+      if (!panelRef.current || panelRef.current.contains(event.target)) return;
+      setOpen(false);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('pointerdown', onPointerDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen((prev) => !prev)} className="btn-ghost relative">
+    <div className="relative" ref={panelRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="btn-ghost relative"
+        aria-expanded={open}
+        aria-label="Toggle alerts"
+      >
         <BellIcon className="h-4 w-4" />
         <span className="hidden lg:inline">Alerts</span>
         {!!unreadCount && (
           <span className="absolute -right-1.5 -top-1.5 rounded-full bg-[var(--danger)] px-1.5 py-0.5 text-[10px] font-bold text-white">
-            {unreadCount}
+            {Math.min(unreadCount, 99)}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[22rem] rounded-2xl border border-[var(--line)] bg-[var(--surface)]/96 p-3 shadow-2xl backdrop-blur-md">
+        <div className="notification-popover absolute right-0 top-11 z-50 w-[22rem] max-w-[92vw] rounded-2xl border border-[var(--line)] bg-[var(--surface)]/96 p-3 shadow-2xl backdrop-blur-md">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="inline-flex items-center gap-1.5 text-sm font-semibold">
               <SparkleIcon className="h-4 w-4 text-[var(--accent)]" />
               Notifications
             </p>
-            <button type="button" onClick={() => dispatch(markAllNotificationsRead())} className="btn-ghost !px-2 !py-1 text-[11px]">
+            <button
+              type="button"
+              onClick={() => dispatch(markAllNotificationsRead())}
+              className="btn-ghost !px-2 !py-1 text-[11px]"
+              disabled={!unreadCount}
+            >
               Mark all read
             </button>
           </div>

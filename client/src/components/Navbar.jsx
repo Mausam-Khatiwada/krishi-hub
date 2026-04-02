@@ -20,11 +20,10 @@ import {
   ShieldCheckIcon,
   StoreIcon,
 } from './icons/AppIcons';
+import { OPEN_COMMAND_PALETTE_EVENT } from '../constants/events';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 import NotificationPanel from './NotificationPanel';
-
-const OPEN_COMMAND_PALETTE_EVENT = 'krishihub:open-command-palette';
 
 const Navbar = () => {
   const { t } = useTranslation();
@@ -57,8 +56,12 @@ const Navbar = () => {
       <div className="mx-auto max-w-[88rem] glass-strip px-3 py-3 md:px-4">
         <div className="flex flex-wrap items-center gap-2.5 md:gap-3">
           <Link to="/" className="mr-1 inline-flex items-center gap-2.5 rounded-2xl px-1.5 py-1 transition hover:bg-[var(--bg-soft)]/65">
-            <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-[#14b45f] text-white shadow-lg">
-              <LeafIcon className="h-5 w-5" />
+            <span className="brand-mark">
+              <span className="brand-ring" />
+              <span className="brand-core">
+                <LeafIcon className="h-4.5 w-4.5" />
+              </span>
+              <span className="brand-spark" />
             </span>
             <span>
               <p className="font-display text-base font-bold tracking-tight text-[var(--accent-3)]">{t('brand')}</p>
@@ -169,5 +172,6 @@ const Navbar = () => {
 };
 
 export default Navbar;
+
 
 

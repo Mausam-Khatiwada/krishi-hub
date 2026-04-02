@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { Provider } from 'react-redux';
@@ -44,7 +44,22 @@ ReactDOM.createRoot(document.getElementById('app')).render(
     <Provider store={store}>
       <BrowserRouter>
         <App />
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          gutter={10}
+          containerStyle={{ top: 18, right: 16 }}
+          toastOptions={{
+            duration: 4200,
+            style: {
+              borderRadius: '14px',
+              border: '1px solid var(--line)',
+              background: 'color-mix(in srgb, var(--surface) 95%, transparent)',
+              color: 'var(--text)',
+              boxShadow: 'var(--shadow-sm)',
+              maxWidth: 'min(24rem, 92vw)',
+            },
+          }}
+        />
       </BrowserRouter>
     </Provider>
   </React.StrictMode>,

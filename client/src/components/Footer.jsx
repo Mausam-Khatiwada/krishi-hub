@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
+  ArrowRightIcon,
   BoltIcon,
   CandleChartIcon,
   CompassIcon,
@@ -16,8 +17,12 @@ const Footer = () => (
     <div className="footer-hero">
       <div className="footer-brand">
         <p className="footer-logo">
-          <span className="footer-logo-icon">
-            <LeafIcon className="h-4.5 w-4.5" />
+          <span className="brand-mark footer-brand-mark" aria-hidden="true">
+            <span className="brand-ring" />
+            <span className="brand-core">
+              <LeafIcon className="h-4 w-4" />
+            </span>
+            <span className="brand-spark" />
           </span>
           Krishihub
         </p>
@@ -39,6 +44,7 @@ const Footer = () => (
           </span>
         </div>
       </div>
+
       <div className="footer-cta">
         <p className="footer-cta-title">Weekly market pulse</p>
         <p className="footer-cta-subtitle">
@@ -46,7 +52,10 @@ const Footer = () => (
         </p>
         <div className="footer-input-row">
           <input className="input" placeholder="Enter your email" type="email" />
-          <button type="button" className="btn-primary">Subscribe</button>
+          <button type="button" className="btn-primary">
+            Subscribe
+            <ArrowRightIcon className="h-4 w-4" />
+          </button>
         </div>
         <div className="footer-contact">
           <span>
@@ -103,7 +112,7 @@ const Footer = () => (
         <p className="footer-text">
           Built for farmers, buyers, and sustainable agriculture networks in Nepal.
         </p>
-        <p className="footer-small">Krishihub © {new Date().getFullYear()}</p>
+        <p className="footer-small">Krishihub (c) {new Date().getFullYear()}</p>
       </div>
     </div>
   </footer>
